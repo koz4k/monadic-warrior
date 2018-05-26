@@ -1,5 +1,12 @@
 module Creep.Plan where
 
+import Control.Monad.Eff (Eff)
+import Control.Monad.Eff.Class (liftEff)
+import Control.Monad.Except.Trans (ExceptT, throwError)
+import Control.Monad.Free (Free, liftF, runFreeM)
+import Control.Monad.State.Trans (execStateT, put)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Writer (execWriter, tell)
 import Data.Argonaut.Core (foldJsonArray, foldJsonObject, jsonEmptyObject)
 import Data.Argonaut.Decode (class DecodeJson, decodeJson, (.?))
 import Data.Argonaut.Encode (class EncodeJson, encodeJson, (:=), (~>))
@@ -10,28 +17,14 @@ import Data.Newtype (class Newtype, unwrap)
 import Data.String (joinWith)
 import Data.Traversable (traverse)
 import Data.Unfoldable (replicate)
-import Control.Monad.Eff (Eff)
-import Control.Monad.Eff.Class (liftEff)
-import Control.Monad.Except.Trans (ExceptT, throwError)
-import Control.Monad.Free (Free, liftF, runFreeM)
-import Control.Monad.State.Trans (execStateT, put)
-import Control.Monad.Trans.Class (lift)
-import Control.Monad.Writer (execWriter, tell)
-import Prelude (
-  class Applicative, class Apply, class Bind, class Functor, class Monad,
-  class Show, Unit, bind, discard, flip, map, pure, unit, void, when, ($), (*>),
-  (+), (<), (<<<), (<>), (=<<), (==), (>), (>>=)
-)
-
+import Prelude (class Applicative, class Apply, class Bind, class Functor, class Monad, class Show, Unit, bind, discard, flip, map, pure, show, unit, void, when, ($), (*>), (+), (/=), (<), (<<<), (<>), (=<<), (==), (>), (>>=))
 import Screeps (CMD, Creep, MEMORY, TICK, TargetPosition(..))
-import Screeps.Creep (
-  amtCarrying, carryCapacity, harvestSource, moveTo, transferToStructure
-)
+import Screeps.Creep (amtCarrying, carryCapacity, harvestSource, moveTo, transferToStructure)
 import Screeps.FindType (find_my_spawns, find_sources)
 import Screeps.Resource (resource_energy)
+import Screeps.ReturnCode (err_not_in_range, ok)
 import Screeps.Room (find)
 import Screeps.RoomObject (room)
-import Screeps.ReturnCode (err_not_in_range)
 
 data PlanF a
   = HarvestEnergy a
@@ -126,8 +119,10 @@ executePlan creep plan = do
         then case head $ find (room creep) find_sources of
           Just source -> do
             code <- liftEff $ harvestSource creep source
-            when (code == err_not_in_range) $
-              void $ liftEff $ moveTo creep $ TargetObj source
+            if code == err_not_in_range
+              then void $ liftEff $ moveTo creep $ TargetObj source
+              else when (code /= ok) $
+                throwError $ "error in harvestSource: " <> show code
             stay
           Nothing -> throwError "source not found"
         else transition next
@@ -136,8 +131,10 @@ executePlan creep plan = do
         then case head $ find (room creep) find_my_spawns of
           Just spawn -> do
             code <- liftEff $ transferToStructure creep spawn resource_energy
-            when (code == err_not_in_range) $
-              void $ liftEff $ moveTo creep $ TargetObj spawn
+            if code == err_not_in_range
+              then void $ liftEff $ moveTo creep $ TargetObj spawn
+              else when (code /= ok) $
+                throwError $ "error in transferToStructure: " <> show code
             stay
           Nothing -> throwError "spawn not found"
         else transition next
