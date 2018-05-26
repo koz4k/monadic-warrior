@@ -139,12 +139,14 @@ executePlan creep plan = do
           Nothing -> throwError "spawn not found"
         else transition next
     Repeat block -> do
-      plan' <- lift $ executePlan creep $ block *> plan
-      changePlan plan'
+      -- Execute just the block to avoid infinite loops.
+      block' <- lift $ executePlan creep $ block
+      changePlan $ block' *> plan
     where
       stay = done
       transition next = do
-        put $ Plan next
+        next' <- lift $ executePlan creep $ Plan next
+        put next'
         done
       changePlan plan' = do
         put plan'
