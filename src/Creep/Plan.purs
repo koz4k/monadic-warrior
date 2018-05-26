@@ -36,13 +36,13 @@ import Screeps.ReturnCode (err_not_in_range)
 data PlanF a
   = HarvestEnergy a
   | TransferEnergyToBase a
-  | Repeat (Plan Unit) a
+  | Repeat (Plan Unit)
 
 instance functorPlanF :: Functor PlanF where
   map k f = case f of
     HarvestEnergy f'        -> HarvestEnergy $ k f'
     TransferEnergyToBase f' -> TransferEnergyToBase $ k f'
-    Repeat block f'         -> Repeat block $ k f'
+    Repeat x                -> Repeat x
 
 newtype Plan a = Plan (Free PlanF a)
 
@@ -66,10 +66,10 @@ instance showPlan :: Show (Plan Unit) where
         TransferEnergyToBase next -> do
           tellLine "transferEnergyToBase"
           pure next
-        Repeat block next -> do
+        Repeat block -> do
           tellLine "repeat"
           go (level + 1) block
-          pure next
+          pure $ pure unit
         where
          tellLine line = tell $ indent <> line <> "\n"
          indent = joinWith "" $ replicate level "  "
@@ -85,11 +85,11 @@ instance encodeJsonPlan :: EncodeJson (Plan Unit) where
         tellObject  $ "action" := "transferEnergyToBase"
                    ~> jsonEmptyObject
         pure next
-      Repeat block next -> do
+      Repeat block -> do
         tellObject  $ "action" := "repeat"
                    ~> "block"  := encodeJson block
                    ~> jsonEmptyObject
-        pure next
+        pure $ pure unit
       where
         tellObject = tell <<< singleton
 
@@ -112,7 +112,7 @@ transferEnergyToBase :: Plan Unit
 transferEnergyToBase = Plan $ liftF $ TransferEnergyToBase unit
 
 repeat :: Plan Unit -> Plan Unit
-repeat block = Plan $ liftF $ Repeat block unit
+repeat block = Plan $ liftF $ Repeat block
 
 executePlan ::
   forall e. Creep -> Plan Unit ->
@@ -141,7 +141,7 @@ executePlan creep plan = do
             stay
           Nothing -> throwError "spawn not found"
         else transition next
-    Repeat block next -> do
+    Repeat block -> do
       plan' <- lift $ executePlan creep $ block *> plan
       changePlan plan'
     where
