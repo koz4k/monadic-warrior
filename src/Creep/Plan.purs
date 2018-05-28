@@ -14,10 +14,8 @@ import Data.Array (head, singleton)
 import Data.Foldable (sequence_)
 import Data.Maybe (Maybe(..))
 import Data.Newtype (class Newtype, unwrap)
-import Data.String (joinWith)
 import Data.Traversable (traverse)
-import Data.Unfoldable (replicate)
-import Prelude (class Applicative, class Apply, class Bind, class Functor, class Monad, class Show, Unit, bind, discard, flip, map, pure, show, unit, void, when, ($), (*>), (+), (/=), (<), (<<<), (<>), (=<<), (==), (>), (>>=))
+import Prelude (class Applicative, class Apply, class Bind, class Functor, class Monad, Unit, bind, discard, flip, map, pure, show, unit, void, when, ($), (*>), (/=), (<), (<<<), (<>), (=<<), (==), (>), (>>=))
 import Screeps (CMD, Creep, MEMORY, TICK, TargetPosition(..))
 import Screeps.Creep (amtCarrying, carryCapacity, harvestSource, moveTo, transferToStructure)
 import Screeps.FindType (find_my_spawns, find_sources)
@@ -48,24 +46,6 @@ derive newtype instance applyPlan :: Apply Plan
 derive newtype instance applicativePlan :: Applicative Plan
 derive newtype instance bindPlan :: Bind Plan
 derive newtype instance monadPlan :: Monad Plan
-
-instance showPlan :: Show (Plan Unit) where
-  show = execWriter <<< go 0
-    where
-      go level plan = flip runFreeM (unwrap plan) $ case _ of
-        HarvestEnergy next -> do
-          tellLine "harvestEnergy"
-          pure next
-        TransferEnergyToBase next -> do
-          tellLine "transferEnergyToBase"
-          pure next
-        Repeat block -> do
-          tellLine "repeat"
-          go (level + 1) block
-          pure $ pure unit
-        where
-         tellLine line = tell $ indent <> line <> "\n"
-         indent = joinWith "" $ replicate level "  "
 
 instance encodeJsonPlan :: EncodeJson (Plan Unit) where
   encodeJson plan =
