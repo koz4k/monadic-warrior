@@ -3,7 +3,7 @@ module Creep.Plan where
 import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Class (liftEff)
 import Control.Monad.Except.Trans (ExceptT, throwError)
-import Control.Monad.Free (Free, liftF, runFreeM)
+import Control.Monad.Free (Free, liftF, resume, runFreeM)
 import Control.Monad.State.Trans (execStateT, put)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Writer (execWriter, tell)
@@ -11,11 +11,12 @@ import Data.Argonaut.Core (foldJsonArray, foldJsonObject, jsonEmptyObject)
 import Data.Argonaut.Decode (class DecodeJson, decodeJson, (.?))
 import Data.Argonaut.Encode (class EncodeJson, encodeJson, (:=), (~>))
 import Data.Array (head, singleton)
+import Data.Either (Either(..))
 import Data.Foldable (sequence_)
 import Data.Maybe (Maybe(..))
 import Data.Newtype (class Newtype, unwrap)
 import Data.Traversable (traverse)
-import Prelude (class Applicative, class Apply, class Bind, class Functor, class Monad, Unit, bind, discard, flip, map, pure, show, unit, void, when, ($), (*>), (/=), (<), (<<<), (<>), (=<<), (==), (>), (>>=))
+import Prelude (class Applicative, class Apply, class Bind, class Functor, class Monad, Unit, bind, discard, flip, map, pure, show, unit, void, when, ($), (*>), (/=), (<), (<<<), (<=<), (<>), (=<<), (==), (>), (>>=))
 import Screeps (CMD, Creep, MEMORY, TICK, TargetPosition(..))
 import Screeps.Creep (amtCarrying, carryCapacity, harvestSource, moveTo, transferToStructure)
 import Screeps.FindType (find_my_spawns, find_sources)
@@ -28,12 +29,14 @@ data PlanF a
   = HarvestEnergy a
   | TransferEnergyToBase a
   | Repeat (Plan Unit)
+  | Interrupt (Plan Unit) (Plan Unit) a
 
 instance functorPlanF :: Functor PlanF where
   map k f = case f of
     HarvestEnergy f'        -> HarvestEnergy $ k f'
     TransferEnergyToBase f' -> TransferEnergyToBase $ k f'
     Repeat x                -> Repeat x
+    Interrupt x y f'        -> Interrupt x y $ k f'
 
 newtype Plan a = Plan (Free PlanF a)
 
@@ -63,6 +66,12 @@ instance encodeJsonPlan :: EncodeJson (Plan Unit) where
                    ~> "block"  := encodeJson block
                    ~> jsonEmptyObject
         pure $ pure unit
+      Interrupt interruptee interrupter next -> do
+        tellObject  $ "action" := "interrupt"
+                   ~> "interruptee"  := encodeJson interruptee
+                   ~> "interrupter"  := encodeJson interrupter
+                   ~> jsonEmptyObject
+        pure next
       where
         tellObject = tell <<< singleton
 
@@ -75,8 +84,13 @@ instance decodeJsonPlan :: DecodeJson (Plan Unit) where
           object .? "action" >>= case _ of
             "harvestEnergy" -> pure harvestEnergy
             "transferEnergyToBase" -> pure transferEnergyToBase
-            "repeat" -> pure <<< repeat =<< decodeJson =<< object .? "block"
+            "repeat" -> pure <<< repeat =<< decodeField object "block"
+            "interrupt" -> do
+              interruptee <- decodeField object "interruptee"
+              interrupter <- decodeField object "interrupter"
+              pure $ interrupt interruptee interrupter
             cmd -> throwError $ "unrecognized command: " <> cmd
+      decodeField object = decodeJson <=< (object .? _)
 
 harvestEnergy :: Plan Unit
 harvestEnergy = Plan $ liftF $ HarvestEnergy unit
@@ -86,6 +100,10 @@ transferEnergyToBase = Plan $ liftF $ TransferEnergyToBase unit
 
 repeat :: Plan Unit -> Plan Unit
 repeat block = Plan $ liftF $ Repeat block
+
+interrupt :: Plan Unit -> Plan Unit -> Plan Unit
+interrupt interrupted interruptee =
+  Plan $ liftF $ Interrupt interrupted interruptee unit
 
 executePlan ::
   forall e. Creep -> Plan Unit ->
@@ -122,12 +140,21 @@ executePlan creep plan = do
       -- Execute just the block to avoid infinite loops.
       block' <- lift $ executePlan creep $ block
       changePlan $ block' *> plan
+    Interrupt interruptee interrupter next -> do
+      interrupter' <- lift $ executePlan creep interrupter
+      case resume $ unwrap interrupter' of
+        Left _ ->
+          -- Interruption - switch to interrupter.
+          changePlan $ interrupter' *> plan
+        Right _ -> do
+          -- No interruption - continue running interruptee.
+          interruptee' <- lift $ executePlan creep interruptee
+          changePlan $ interruptee' `interrupt` interrupter
     where
       stay = done
       transition next = do
         next' <- lift $ executePlan creep $ Plan next
-        put next'
-        done
+        changePlan next'
       changePlan plan' = do
         put plan'
         done
