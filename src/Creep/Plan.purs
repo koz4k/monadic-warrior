@@ -1,24 +1,25 @@
 module Creep.Plan where
 
+import Blockable (runBlockableT, unblock)
 import Control.Monad.Eff (Eff)
-import Control.Monad.Eff.Class (liftEff)
 import Control.Monad.Except.Trans (ExceptT, throwError)
 import Control.Monad.Free (Free, liftF, resume, runFreeM)
-import Control.Monad.State.Trans (execStateT, put)
+import Control.Monad.State (execStateT, get, put)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Writer (execWriter, tell)
+import Creep.Exec (harvestSource, moveTo, transferToStructure)
 import Data.Argonaut.Core (foldJsonArray, foldJsonObject, jsonEmptyObject)
 import Data.Argonaut.Decode (class DecodeJson, decodeJson, (.?))
 import Data.Argonaut.Encode (class EncodeJson, encodeJson, (:=), (~>))
 import Data.Array (head, singleton)
 import Data.Either (Either(..))
 import Data.Foldable (sequence_)
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), isNothing)
 import Data.Newtype (class Newtype, unwrap)
 import Data.Traversable (traverse)
-import Prelude (class Applicative, class Apply, class Bind, class Functor, class Monad, Unit, bind, discard, flip, map, pure, show, unit, void, when, ($), (*>), (/=), (<), (<<<), (<=<), (<>), (=<<), (==), (>), (>>=))
+import Prelude (class Applicative, class Apply, class Bind, class Functor, class Monad, Unit, bind, discard, flip, map, pure, show, unit, void, when, ($), (*>), (/=), (<), (<$>), (<<<), (<=<), (<>), (=<<), (==), (>), (>>=))
 import Screeps (CMD, Creep, MEMORY, TICK, TargetPosition(..))
-import Screeps.Creep (amtCarrying, carryCapacity, harvestSource, moveTo, transferToStructure)
+import Screeps.Creep (amtCarrying, carryCapacity)
 import Screeps.FindType (find_my_spawns, find_sources)
 import Screeps.Resource (resource_energy)
 import Screeps.ReturnCode (err_not_in_range, ok)
@@ -40,9 +41,7 @@ instance functorPlanF :: Functor PlanF where
 
 newtype Plan a = Plan (Free PlanF a)
 
-instance newtypePlan :: Newtype (Plan a) (Free PlanF a) where
-  wrap = Plan
-  unwrap (Plan x) = x
+derive instance newtypePlan :: Newtype (Plan a) _
 
 derive newtype instance functorPlan :: Functor Plan
 derive newtype instance applyPlan :: Apply Plan
@@ -106,56 +105,74 @@ interrupt interrupted interruptee =
   Plan $ liftF $ Interrupt interrupted interruptee unit
 
 executePlan ::
-  forall e. Creep -> Plan Unit ->
-            ExceptT String
-                    (Eff (cmd :: CMD, memory :: MEMORY, tick :: TICK | e))
-                    (Plan Unit)
-executePlan creep plan = do
-  flip execStateT plan $ flip runFreeM (unwrap plan) $ case _ of
-    HarvestEnergy next -> do
-      if amtCarrying creep resource_energy < carryCapacity creep
-        then case head $ find (room creep) find_sources of
-          Just source -> do
-            code <- liftEff $ harvestSource creep source
-            if code == err_not_in_range
-              then void $ liftEff $ moveTo creep $ TargetObj source
-              else when (code /= ok) $
-                throwError $ "error in harvestSource: " <> show code
-            stay
-          Nothing -> throwError "source not found"
-        else transition next
-    TransferEnergyToBase next -> do
-      if amtCarrying creep resource_energy > 0
-        then case head $ find (room creep) find_my_spawns of
-          Just spawn -> do
-            code <- liftEff $ transferToStructure creep spawn resource_energy
-            if code == err_not_in_range
-              then void $ liftEff $ moveTo creep $ TargetObj spawn
-              else when (code /= ok) $
-                throwError $ "error in transferToStructure: " <> show code
-            stay
-          Nothing -> throwError "spawn not found"
-        else transition next
-    Repeat block -> do
-      -- Execute just the block to avoid infinite loops.
-      block' <- lift $ executePlan creep $ block
-      changePlan $ block' *> plan
-    Interrupt interruptee interrupter next -> do
-      interrupter' <- lift $ executePlan creep interrupter
-      case resume $ unwrap interrupter' of
-        Left _ ->
-          -- Interruption - switch to interrupter.
-          changePlan $ interrupter' *> plan
-        Right _ -> do
-          -- No interruption - continue running interruptee.
-          interruptee' <- lift $ executePlan creep interruptee
-          changePlan $ interruptee' `interrupt` interrupter
-    where
-      stay = done
-      transition next = do
-        next' <- lift $ executePlan creep $ Plan next
-        changePlan next'
-      changePlan plan' = do
-        put plan'
-        done
-      done = pure $ pure unit
+  forall e.
+    Creep -> Plan Unit ->
+    ExceptT String
+            (Eff (cmd :: CMD, memory :: MEMORY, tick :: TICK | e))
+            (Plan Unit)
+executePlan creep =
+  flip execStateT (pure unit) <<< runBlockableT <<< executePlan'
+  where
+    executePlan' plan' = do
+      lift $ put plan'
+      runFreeM peel $ unwrap plan'
+      where
+        peel = case _ of
+          HarvestEnergy next -> do
+            if amtCarrying creep resource_energy < carryCapacity creep
+              then case head $ find (room creep) find_sources of
+                Just source -> do
+                  code <- harvestSource creep source
+                  if code == err_not_in_range
+                    then void $ moveTo creep $ TargetObj source
+                    else when (code /= ok) $ lift $ lift $
+                      throwError $ "error in harvestSource: " <> show code
+                  stay
+                Nothing -> lift $ lift $ throwError "source not found"
+              else transition next
+          TransferEnergyToBase next -> do
+            if amtCarrying creep resource_energy > 0
+              then case head $ find (room creep) find_my_spawns of
+                Just spawn -> do
+                  code <- transferToStructure creep spawn resource_energy
+                  if code == err_not_in_range
+                    then void $ moveTo creep $ TargetObj spawn
+                    else when (code /= ok) $ lift $ lift $
+                      throwError $ "error in transferToStructure: " <> show code
+                  stay
+                Nothing -> lift $ lift $ throwError "spawn not found"
+              else transition next
+          Repeat block -> do
+            -- Execute just the block to avoid infinite loops.
+            block' <- map (_.plan) $ localExec $ executePlan' block
+            prependPlan block'
+          Interrupt interruptee interrupter next -> do
+            interrupter' <-
+              map (_.plan) $ localExec $ executePlan' interrupter
+            case resume $ unwrap interrupter' of
+              Left _ -> do
+                -- Interruption - switch to interrupter.
+                prependPlan $ interrupter'
+              Right _ -> do
+                -- No interruption - continue running interruptee.
+                interruptee' <-
+                  map (_.plan) $ localExec $ executePlan' interruptee
+                changePlan $ (interruptee' `interrupt` interrupter) *> Plan next
+          where
+            stay = unwrap <$> lift get
+            transition next = do
+              lift $ put $ Plan next
+              pure next
+            changePlan plan'' = do
+              lift $ put plan''
+              done
+            prependPlan prefixPlan = do
+              oldPlan <- lift get
+              changePlan $ prefixPlan *> oldPlan
+            done = pure $ pure unit
+            localExec exec = do
+              outerPlan <- lift get
+              blocked <- isNothing <$> unblock exec
+              innerPlan <- lift get
+              lift $ put outerPlan
+              pure {plan: innerPlan, blocked: blocked}
