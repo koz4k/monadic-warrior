@@ -1,20 +1,20 @@
 module Creep.Plan where
 
-import Blockable (runBlockableT, unblock)
+import Blockable (runBlockableT)
 import Control.Monad.Eff (Eff)
 import Control.Monad.Except (withExceptT)
 import Control.Monad.Except.Trans (ExceptT, throwError)
 import Control.Monad.Free (Free, liftF, resume, runFreeM)
-import Control.Monad.State (execStateT, get, put)
+import Control.Monad.Rec.Class (Step(..), tailRecM)
 import Control.Monad.Writer (execWriter, tell)
 import Creep.Exec (ExecError(ErrorMessage, BadReturnCode), catchReturnCode, harvestSource, moveTo, transferToStructure)
 import Data.Argonaut.Core (foldJsonArray, foldJsonObject, jsonEmptyObject)
 import Data.Argonaut.Decode (class DecodeJson, decodeJson, (.?))
 import Data.Argonaut.Encode (class EncodeJson, encodeJson, (:=), (~>))
 import Data.Array (head, singleton)
-import Data.Either (Either(..))
+import Data.Either (Either(Right, Left), isRight)
 import Data.Foldable (sequence_)
-import Data.Maybe (Maybe(..), isNothing)
+import Data.Maybe (Maybe(Nothing, Just), fromMaybe)
 import Data.Newtype (class Newtype, unwrap)
 import Data.Traversable (traverse)
 import Prelude (class Applicative, class Apply, class Bind, class Functor, class Monad, Unit, bind, discard, flip, map, pure, show, unit, ($), (*>), (<), (<$>), (<<<), (<=<), (<>), (=<<), (>), (>>=))
@@ -110,8 +110,9 @@ executePlan ::
     ExceptT String
             (Eff (cmd :: CMD, memory :: MEMORY, tick :: TICK | e))
             (Plan Unit)
-executePlan creep =
-  renderError <<< flip execStateT (pure unit) <<< runBlockableT <<< executePlan'
+executePlan creep plan =
+  renderError $ map (fromMaybe plan) $ runBlockableT $
+    loop executeSingleAction plan
   where
     renderError = withExceptT \error ->
       "error in creep " <> (show $ name creep) <> ": " <>
@@ -120,9 +121,10 @@ executePlan creep =
         renderDetails details = case details of
           ErrorMessage message -> message
           BadReturnCode code -> show code
-    executePlan' plan' = do
-      put plan'
-      runFreeM peel $ unwrap plan'
+    loop = tailRecM <<< (map Loop <$> _)
+    executeSingleAction plan' = case resume $ unwrap plan' of
+      Left action -> peel action
+      Right _ -> pure $ pure unit
       where
         peel = case _ of
           HarvestEnergy next -> do
@@ -146,35 +148,26 @@ executePlan creep =
               else transition next
           Repeat block -> do
             -- Execute just the block to avoid infinite loops.
-            block' <- map (_.plan) $ localExec $ executePlan' block
-            prependPlan block'
+            block' <- executeSingleAction block
+            pure $ block' *> plan'
           Interrupt interruptee interrupter next -> do
-            interrupter' <-
-              map (_.plan) $ localExec $ executePlan' interrupter
-            case resume $ unwrap interrupter' of
-              Left _ -> do
-                -- Interruption - switch to interrupter.
-                prependPlan $ interrupter'
-              Right _ -> do
+            interrupter' <- executeSingleAction interrupter
+            if isPure interrupter'
+              then do
                 -- No interruption - continue running interruptee.
-                interruptee' <-
-                  map (_.plan) $ localExec $ executePlan' interruptee
-                changePlan $ (interruptee' `interrupt` interrupter) *> Plan next
+                interruptee' <- executeSingleAction interruptee
+                if isPure interruptee'
+                  then
+                    -- Interruptee finished - transition to the next action.
+                    transition next
+                  else
+                    -- Interruptee is still running - update it in the plan.
+                    pure $ (interruptee' `interrupt` interrupter) *> Plan next
+              else
+                -- Interruption - switch to interrupter.
+                pure $ interrupter' *> plan'
           where
             catchNotInRange = catchReturnCode err_not_in_range
-            stay = unwrap <$> get
-            transition next = do
-              put $ Plan next
-              pure next
-            changePlan plan'' = do
-              put plan''
-              pure $ pure unit
-            prependPlan prefixPlan = do
-              oldPlan <- get
-              changePlan $ prefixPlan *> oldPlan
-            localExec exec = do
-              outerPlan <- get
-              blocked <- isNothing <$> unblock exec
-              innerPlan <- get
-              put outerPlan
-              pure {plan: innerPlan, blocked: blocked}
+            stay = pure plan'
+            transition = executeSingleAction <<< Plan
+            isPure = isRight <<< resume <<< unwrap
