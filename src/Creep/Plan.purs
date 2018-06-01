@@ -2,12 +2,13 @@ module Creep.Plan where
 
 import Blockable (runBlockableT, unblock)
 import Control.Monad.Eff (Eff)
+import Control.Monad.Except (withExceptT)
 import Control.Monad.Except.Trans (ExceptT, throwError)
 import Control.Monad.Free (Free, liftF, resume, runFreeM)
 import Control.Monad.State (execStateT, get, put)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Writer (execWriter, tell)
-import Creep.Exec (harvestSource, moveTo, transferToStructure)
+import Creep.Exec (ExecError(ErrorMessage, BadReturnCode), catchReturnCode, harvestSource, moveTo, transferToStructure)
 import Data.Argonaut.Core (foldJsonArray, foldJsonObject, jsonEmptyObject)
 import Data.Argonaut.Decode (class DecodeJson, decodeJson, (.?))
 import Data.Argonaut.Encode (class EncodeJson, encodeJson, (:=), (~>))
@@ -17,12 +18,12 @@ import Data.Foldable (sequence_)
 import Data.Maybe (Maybe(..), isNothing)
 import Data.Newtype (class Newtype, unwrap)
 import Data.Traversable (traverse)
-import Prelude (class Applicative, class Apply, class Bind, class Functor, class Monad, Unit, bind, discard, flip, map, pure, show, unit, void, when, ($), (*>), (/=), (<), (<$>), (<<<), (<=<), (<>), (=<<), (==), (>), (>>=))
+import Prelude (class Applicative, class Apply, class Bind, class Functor, class Monad, Unit, bind, discard, flip, map, pure, show, unit, ($), (*>), (<), (<$>), (<<<), (<=<), (<>), (=<<), (>), (>>=))
 import Screeps (CMD, Creep, MEMORY, TICK, TargetPosition(..))
-import Screeps.Creep (amtCarrying, carryCapacity)
+import Screeps.Creep (amtCarrying, carryCapacity, name)
 import Screeps.FindType (find_my_spawns, find_sources)
 import Screeps.Resource (resource_energy)
-import Screeps.ReturnCode (err_not_in_range, ok)
+import Screeps.ReturnCode (err_not_in_range)
 import Screeps.Room (find)
 import Screeps.RoomObject (room)
 
@@ -111,8 +112,15 @@ executePlan ::
             (Eff (cmd :: CMD, memory :: MEMORY, tick :: TICK | e))
             (Plan Unit)
 executePlan creep =
-  flip execStateT (pure unit) <<< runBlockableT <<< executePlan'
+  renderError <<< flip execStateT (pure unit) <<< runBlockableT <<< executePlan'
   where
+    renderError = withExceptT \error ->
+      "error in creep " <> (show $ name creep) <> ": " <>
+        renderDetails error
+      where
+        renderDetails details = case details of
+          ErrorMessage message -> message
+          BadReturnCode code -> show code
     executePlan' plan' = do
       lift $ put plan'
       runFreeM peel $ unwrap plan'
@@ -120,27 +128,22 @@ executePlan creep =
         peel = case _ of
           HarvestEnergy next -> do
             if amtCarrying creep resource_energy < carryCapacity creep
+              -- TODO: Use findClosestByPath instead.
               then case head $ find (room creep) find_sources of
                 Just source -> do
-                  code <- harvestSource creep source
-                  if code == err_not_in_range
-                    then void $ moveTo creep $ TargetObj source
-                    else when (code /= ok) $ lift $ lift $
-                      throwError $ "error in harvestSource: " <> show code
+                  harvestSource creep source
+                    `catchNotInRange` (moveTo creep $ TargetObj source)
                   stay
-                Nothing -> lift $ lift $ throwError "source not found"
+                Nothing -> throwError $ ErrorMessage "source not found"
               else transition next
           TransferEnergyToBase next -> do
             if amtCarrying creep resource_energy > 0
               then case head $ find (room creep) find_my_spawns of
                 Just spawn -> do
-                  code <- transferToStructure creep spawn resource_energy
-                  if code == err_not_in_range
-                    then void $ moveTo creep $ TargetObj spawn
-                    else when (code /= ok) $ lift $ lift $
-                      throwError $ "error in transferToStructure: " <> show code
+                  transferToStructure creep spawn resource_energy
+                    `catchNotInRange` (moveTo creep $ TargetObj spawn)
                   stay
-                Nothing -> lift $ lift $ throwError "spawn not found"
+                Nothing -> throwError $ ErrorMessage "spawn not found"
               else transition next
           Repeat block -> do
             -- Execute just the block to avoid infinite loops.
@@ -159,17 +162,17 @@ executePlan creep =
                   map (_.plan) $ localExec $ executePlan' interruptee
                 changePlan $ (interruptee' `interrupt` interrupter) *> Plan next
           where
+            catchNotInRange = catchReturnCode err_not_in_range
             stay = unwrap <$> lift get
             transition next = do
               lift $ put $ Plan next
               pure next
             changePlan plan'' = do
               lift $ put plan''
-              done
+              pure $ pure unit
             prependPlan prefixPlan = do
               oldPlan <- lift get
               changePlan $ prefixPlan *> oldPlan
-            done = pure $ pure unit
             localExec exec = do
               outerPlan <- lift get
               blocked <- isNothing <$> unblock exec
