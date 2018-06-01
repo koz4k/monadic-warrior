@@ -3,7 +3,7 @@ module Blockable where
 import Control.Monad.Error.Class (class MonadError, class MonadThrow)
 import Control.Monad.Maybe.Trans (MaybeT, runMaybeT)
 import Control.Monad.Rec.Class (class MonadRec)
-import Control.Monad.State (get, put)
+import Control.Monad.State (class MonadState, get, put, state)
 import Control.Monad.State.Trans (StateT, evalStateT)
 import Control.Monad.Trans.Class (class MonadTrans, lift)
 import Control.Plus (empty)
@@ -36,6 +36,10 @@ derive newtype instance monadErrorBlockableT ::
 instance monadTransBlockableT ::
   PartialMonoid s => MonadTrans (BlockableT s) where
   lift = reserve partialEmpty
+
+instance monadStateBlockableT ::
+  (PartialMonoid s, MonadState s' m) => MonadState s' (BlockableT s m) where
+  state = lift <<< state
 
 runBlockableT ::
   forall s m a. PartialMonoid s => Monad m => BlockableT s m a -> m (Maybe a)

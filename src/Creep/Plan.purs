@@ -6,7 +6,6 @@ import Control.Monad.Except (withExceptT)
 import Control.Monad.Except.Trans (ExceptT, throwError)
 import Control.Monad.Free (Free, liftF, resume, runFreeM)
 import Control.Monad.State (execStateT, get, put)
-import Control.Monad.Trans.Class (lift)
 import Control.Monad.Writer (execWriter, tell)
 import Creep.Exec (ExecError(ErrorMessage, BadReturnCode), catchReturnCode, harvestSource, moveTo, transferToStructure)
 import Data.Argonaut.Core (foldJsonArray, foldJsonObject, jsonEmptyObject)
@@ -122,7 +121,7 @@ executePlan creep =
           ErrorMessage message -> message
           BadReturnCode code -> show code
     executePlan' plan' = do
-      lift $ put plan'
+      put plan'
       runFreeM peel $ unwrap plan'
       where
         peel = case _ of
@@ -163,19 +162,19 @@ executePlan creep =
                 changePlan $ (interruptee' `interrupt` interrupter) *> Plan next
           where
             catchNotInRange = catchReturnCode err_not_in_range
-            stay = unwrap <$> lift get
+            stay = unwrap <$> get
             transition next = do
-              lift $ put $ Plan next
+              put $ Plan next
               pure next
             changePlan plan'' = do
-              lift $ put plan''
+              put plan''
               pure $ pure unit
             prependPlan prefixPlan = do
-              oldPlan <- lift get
+              oldPlan <- get
               changePlan $ prefixPlan *> oldPlan
             localExec exec = do
-              outerPlan <- lift get
+              outerPlan <- get
               blocked <- isNothing <$> unblock exec
-              innerPlan <- lift get
-              lift $ put outerPlan
+              innerPlan <- get
+              put outerPlan
               pure {plan: innerPlan, blocked: blocked}
