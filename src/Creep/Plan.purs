@@ -6,18 +6,19 @@ import Control.Monad.Except (withExceptT)
 import Control.Monad.Except.Trans (ExceptT, throwError)
 import Control.Monad.Free (Free, liftF, resume, runFreeM)
 import Control.Monad.Rec.Class (Step(..), tailRecM)
+import Control.Monad.State (execStateT, get, put)
 import Control.Monad.Writer (execWriter, tell)
 import Creep.Exec (ExecError(ErrorMessage, BadReturnCode), catchReturnCode, harvestSource, moveTo, transferToStructure)
 import Data.Argonaut.Core (foldJsonArray, foldJsonObject, jsonEmptyObject)
 import Data.Argonaut.Decode (class DecodeJson, decodeJson, (.?))
 import Data.Argonaut.Encode (class EncodeJson, encodeJson, (:=), (~>))
-import Data.Array (head, singleton)
+import Data.Array (head, length, singleton, snoc, uncons)
 import Data.Either (Either(Right, Left), isRight)
 import Data.Foldable (sequence_)
-import Data.Maybe (Maybe(Nothing, Just), fromMaybe)
+import Data.Maybe (Maybe(Nothing, Just))
 import Data.Newtype (class Newtype, unwrap)
 import Data.Traversable (traverse)
-import Prelude (class Applicative, class Apply, class Bind, class Functor, class Monad, Unit, bind, discard, flip, map, pure, show, unit, ($), (*>), (<), (<$>), (<<<), (<=<), (<>), (=<<), (>), (>>=))
+import Prelude (class Applicative, class Apply, class Bind, class Functor, class Monad, Unit, bind, discard, flip, map, pure, show, unit, ($), (*>), (-), (<), (<$>), (<<<), (<=<), (<>), (=<<), (==), (>), (>>=))
 import Screeps (CMD, Creep, MEMORY, TICK, TargetPosition(..))
 import Screeps.Creep (amtCarrying, carryCapacity, name)
 import Screeps.FindType (find_my_spawns, find_sources)
@@ -104,15 +105,16 @@ interrupt :: Plan Unit -> Plan Unit -> Plan Unit
 interrupt interrupted interruptee =
   Plan $ liftF $ Interrupt interrupted interruptee unit
 
+type ThreadQueue = Array (Plan Unit)
+
 executePlan ::
   forall e.
-    Creep -> Plan Unit ->
+    Creep -> ThreadQueue ->
     ExceptT String
             (Eff (cmd :: CMD, memory :: MEMORY, tick :: TICK | e))
-            (Plan Unit)
-executePlan creep plan =
-  renderError $ map (fromMaybe plan) $ runBlockableT $
-    loop executeSingleAction plan
+            ThreadQueue
+executePlan creep threadQueue =
+  renderError $ flip execStateT threadQueue $ runBlockableT executeThreads
   where
     renderError = withExceptT \error ->
       "error in creep " <> (show $ name creep) <> ": " <>
@@ -121,7 +123,19 @@ executePlan creep plan =
         renderDetails details = case details of
           ErrorMessage message -> message
           BadReturnCode code -> show code
-    loop = tailRecM <<< (map Loop <$> _)
+    executeThreads = do
+      threadCount <- length <$> get
+      flip tailRecM threadCount \i ->
+        if i == 0
+          then pure $ Done unit
+          else do
+            threadQueue' <- get
+            case uncons threadQueue' of
+              Nothing -> throwError $ ErrorMessage "empty thread queue"
+              Just {head: plan, tail: threadQueue''} -> do
+                plan' <- executeSingleAction plan
+                put $ snoc threadQueue'' plan'
+                pure $ Loop $ i - 1
     executeSingleAction plan' = case resume $ unwrap plan' of
       Left action -> peel action
       Right _ -> pure $ pure unit
