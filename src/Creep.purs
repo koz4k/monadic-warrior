@@ -1,34 +1,66 @@
 module Creep where
 
-import Control.Monad.Eff (Eff)
-import Control.Monad.Except.Trans (ExceptT(..), runExceptT)
-import Control.Monad.Trans.Class (lift)
-import Creep.Plan (Plan, ThreadQueue, executePlan)
-import Data.Array (singleton)
-import Data.Either (isRight)
-import Prelude (Unit, flip, map, not, when, ($), (<<<), (=<<))
+import Blockable (runBlockableT)
+import Control.Monad.Eff.Class (class MonadEff, liftEff)
+import Control.Monad.Except (class MonadError, throwError)
+import Control.Monad.Except.Trans (runExceptT)
+import Control.Monad.Rec.Class (class MonadRec, Step(..), tailRecM)
+import Control.Monad.State (execStateT, get)
+import Creep.Exec (ExecError(..))
+import Creep.Plan (Plan, executePlan)
+import Creep.State (CreepState, initState, runThread)
+import Data.Array (length)
+import Data.Bifunctor (lmap)
+import Data.Either (either, isRight)
+import Prelude (Unit, bind, discard, flip, map, not, pure, show, unit, when, ($), (-), (<$>), (<<<), (<=<), (<>), (==))
 import Screeps (CMD, Creep, MEMORY, TICK)
-import Screeps.Creep (getMemory, setMemory, spawning)
+import Screeps.Creep (getMemory, name, setMemory, spawning)
 
-assignPlan :: forall e. Creep -> Plan Unit -> Eff (memory :: MEMORY | e) Unit
-assignPlan creep = assignThreadQueue creep <<< singleton
+assignPlan ::
+  forall e m. MonadEff (memory :: MEMORY | e) m => Creep -> Plan Unit -> m Unit
+assignPlan creep = setState creep <<< initState
 
-hasPlan :: forall e. Creep -> Eff (memory :: MEMORY | e) Boolean
-hasPlan = map isRight <<< runExceptT <<< getThreadQueue
+hasPlan :: forall e m. MonadEff (memory :: MEMORY | e) m => Creep -> m Boolean
+hasPlan = map isRight <<< runExceptT <<< getState
 
 runCreep ::
-  forall e. Creep ->
-            ExceptT String
-                    (Eff (cmd :: CMD, memory :: MEMORY, tick :: TICK | e))
-                    Unit
-runCreep creep = when (not $ spawning creep) $
-  lift <<< assignThreadQueue creep =<< executePlan creep =<<
-    getThreadQueue creep
+  forall e m.
+    MonadRec m => MonadError String m =>
+    MonadEff (cmd :: CMD, memory :: MEMORY, tick :: TICK | e) m =>
+      Creep -> m Unit
+runCreep creep = when (not $ spawning creep) do
+  state <- getState creep
+  state' <- renderError $ flip execStateT state $ runBlockableT runThreads
+  setState creep state'
+  where
+    renderError =
+      either throwError pure <<< lmap renderMessage <=< runExceptT
+      where
+        renderMessage error =
+          "error in creep " <> (show $ name creep) <> ": " <>
+            renderDetails error
+        renderDetails details = case details of
+          ErrorMessage message -> message
+          BadReturnCode code -> show code
+    runThreads = do
+      threadCount <- length <$> get
+      flip tailRecM threadCount \i ->
+        if i == 0
+          then pure $ Done unit
+          else do
+            runThread $ executePlan creep
+            pure $ Loop $ i - 1
 
-assignThreadQueue ::
-  forall e. Creep -> ThreadQueue -> Eff (memory :: MEMORY | e) Unit
-assignThreadQueue = flip setMemory "threadQueue"
+setState ::
+  forall e m.
+    MonadEff (memory :: MEMORY | e) m =>
+      Creep -> CreepState (Plan Unit) -> m Unit
+setState creep = liftEff <<< flip setMemory "state" creep
 
-getThreadQueue ::
-  forall e. Creep -> ExceptT String (Eff (memory :: MEMORY | e)) ThreadQueue
-getThreadQueue creep = ExceptT $ getMemory creep "threadQueue"
+getState ::
+  forall e m.
+    MonadError String m =>
+      MonadEff (memory :: MEMORY | e) m => Creep -> m (CreepState (Plan Unit))
+getState creep = do
+  eitherState <- liftEff $ getMemory creep "state"
+  either throwError pure eitherState
