@@ -1,4 +1,4 @@
-module Creep.Exec where
+module Creep.Exec (Exec, ExecError(..), ExecStatus, catchReturnCode, harvestSource, moveTo, transferToStructure) where
 
 import Blockable (class PartialMonoid, BlockableT, reserve)
 import Control.Monad.Eff (Eff)

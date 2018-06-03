@@ -1,4 +1,4 @@
-module Creep.State where
+module Creep.State (CreepState, initState, runThread) where
 
 import Control.Monad.Except (class MonadError, throwError)
 import Control.Monad.State (class MonadState, get, put)

@@ -1,4 +1,4 @@
-module Creep.Plan where
+module Creep.Plan (Plan, executePlan, harvestEnergy, interrupt, repeat, transferEnergyToBase) where
 
 import Control.Monad.Eff.Class (class MonadEff)
 import Control.Monad.Except (class MonadError)

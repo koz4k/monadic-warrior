@@ -1,4 +1,4 @@
-module Creep where
+module Creep (assignPlan, hasPlan, runCreep) where
 
 import Blockable (runBlockableT)
 import Control.Monad.Eff.Class (class MonadEff, liftEff)

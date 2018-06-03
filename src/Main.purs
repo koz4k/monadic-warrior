@@ -15,7 +15,8 @@ import Screeps.Game (creeps)
 import Creep (assignPlan, hasPlan, runCreep)
 import Creep.Plan (harvestEnergy, repeat, transferEnergyToBase)
 
-main :: Eff (cmd :: CMD, console :: CONSOLE, memory :: MEMORY, tick :: TICK) Unit
+main ::
+  Eff (cmd :: CMD, console :: CONSOLE, memory :: MEMORY, tick :: TICK) Unit
 main = do
   void $ traverse assignPlanToNewCreep =<< creeps
   void $ traverse (handleError <<< runCreep) =<< creeps
