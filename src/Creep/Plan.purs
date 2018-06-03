@@ -77,7 +77,7 @@ instance decodeJsonPlan :: DecodeJson (Plan Unit) where
     where
       decodeFromArray = map sequence_ <<< traverse decodeAction
       decodeAction =
-        foldJsonObject (throwError "expected an object") $ \object ->
+        foldJsonObject (throwError "expected an object") \object ->
           object .? "action" >>= case _ of
             "harvestEnergy" -> pure harvestEnergy
             "transferEnergyToBase" -> pure transferEnergyToBase

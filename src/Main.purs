@@ -3,17 +3,13 @@ module Main where
 import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Console (CONSOLE, log)
 import Control.Monad.Except.Trans (runExceptT)
-import Data.Either (either)
-import Data.Traversable (traverse)
-import Prelude (
-  Unit, bind, discard, not, pure, void, when, ($), (<<<), (<=<), (=<<)
-)
-
-import Screeps (CMD, MEMORY, TICK)
-import Screeps.Game (creeps)
-
 import Creep (assignPlan, hasPlan, runCreep)
 import Creep.Plan (harvestEnergy, repeat, transferEnergyToBase)
+import Data.Either (either)
+import Data.Traversable (traverse)
+import Prelude (Unit, bind, discard, not, pure, void, when, ($), (<<<), (<=<), (=<<))
+import Screeps (CMD, MEMORY, TICK)
+import Screeps.Game (creeps)
 
 main ::
   Eff (cmd :: CMD, console :: CONSOLE, memory :: MEMORY, tick :: TICK) Unit
