@@ -1,4 +1,4 @@
-module Creep.Plan (Plan, executePlan, fork, harvestEnergy, interrupt, join, kill, plan, repeat, transferEnergyToBase) where
+module Creep.Plan (Plan, PVar, ThreadId, executePlan, fork, harvestEnergy, interrupt, join, kill, plan, repeat, transferEnergyToBase) where
 
 import Control.Monad.Eff.Class (class MonadEff)
 import Control.Monad.Except (class MonadError)
@@ -8,8 +8,8 @@ import Control.Monad.State (class MonadState, State, evalState, get, modify)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Writer (class MonadWriter, WriterT, execWriter, execWriterT, tell)
 import Creep.Exec (Exec, ExecError(ErrorMessage), catchReturnCode, harvestSource, moveTo, transferToStructure)
-import Creep.State (CreepState, ThreadId, addThread, hasThread, initThreadId, nextThreadId, removeThread)
-import Data.Argonaut.Core (Json, JObject, foldJsonArray, foldJsonObject, jsonEmptyObject)
+import Creep.State (CreepState, addThread, hasThread, removeThread)
+import Data.Argonaut.Core (JObject, foldJsonArray, foldJsonObject, jsonEmptyObject)
 import Data.Argonaut.Decode (class DecodeJson, decodeJson, (.?))
 import Data.Argonaut.Encode (class EncodeJson, encodeJson, (:=), (~>))
 import Data.Array (head, singleton)
@@ -18,7 +18,7 @@ import Data.Maybe (Maybe(..))
 import Data.Newtype (class Newtype, unwrap)
 import Data.Traversable (traverse_)
 import Monoid (Traversal(..))
-import Prelude (class Applicative, class Apply, class Bind, class Functor, class Monad, Unit, bind, discard, flip, map, pure, unit, unless, when, ($), (*>), (<), (<$>), (<*>), (<<<), (<=<), (<>), (=<<), (>), (>>=), (>>>))
+import Prelude (class Applicative, class Apply, class Bind, class Functor, class Monad, Unit, bind, discard, flip, map, pure, unit, unless, when, ($), (*>), (+), (<), (<$>), (<*>), (<<<), (<=<), (<>), (=<<), (>), (>>=), (>>>))
 import Screeps (CMD, Creep, MEMORY, TICK, TargetPosition(..))
 import Screeps.Creep (amtCarrying, carryCapacity)
 import Screeps.FindType (find_my_spawns, find_sources)
@@ -34,9 +34,9 @@ data PlanF a
   -- TODO: Take a proof of a ~ Unit instead.
   | Repeat (Plan Unit) a
   | Interrupt (Plan Unit) (Plan Unit) a
-  | Fork (Plan Unit) ThreadId a
-  | Join ThreadId a
-  | Kill ThreadId a
+  | Fork (Plan Unit) Int a
+  | Join Int a
+  | Kill Int a
 
 instance functorPlanF :: Functor PlanF where
   map k f = case f of
@@ -96,9 +96,7 @@ instance encodeJsonPlan :: EncodeJson (Plan Unit) where
 instance decodeJsonPlan :: DecodeJson (Plan Unit) where
   decodeJson = foldJsonArray (throwError "expected an array") decodeFromArray
     where
-      decodeFromArray :: Array Json -> Either String (Plan Unit)
       decodeFromArray = map unwrap <<< execWriterT <<< traverse_ decodeAction
-      decodeAction :: Json -> WriterT (Traversal Plan) (Either String) Unit
       decodeAction =
         foldJsonObject (throwError "expected an object") \object ->
           (lift $ object .? "action") >>= case _ of
@@ -118,12 +116,11 @@ instance decodeJsonPlan :: DecodeJson (Plan Unit) where
             "kill" ->
               tellAction <<< flip Kill unit =<< decodeField object "threadId"
             cmd -> throwError $ "unrecognized command: " <> cmd
-      decodeField :: forall m a. MonadError String m => DecodeJson a => JObject -> String -> m a
+      decodeField ::
+        forall m a.
+          MonadError String m => DecodeJson a => JObject -> String -> m a
       decodeField object field =
         either throwError pure $ decodeJson =<< (object .? field)
-      --localDecodePlan :: forall m. MonadError String m => JObject -> String -> WriterT (Traversal Plan) m (Plan Unit)
-      -- localPlan returns unit
-      --localDecodePlan object = localPlan <<< decodeField object
 
 peelPure ::
   forall m a. Applicative m => PlanF (Free PlanF a) -> m (Free PlanF a)
@@ -136,10 +133,14 @@ peelPure = case _ of
   Join threadId next -> pure next
   Kill threadId next -> pure next
 
-type PlanM = WriterT (Traversal Plan) (State ThreadId)
+type PlanM = WriterT (Traversal Plan) (State Int)
+
+newtype PVar a = PVar Int
+
+data ThreadId
 
 plan :: PlanM Unit -> Plan Unit
-plan = unwrap <<< flip evalState (nextThreadId initThreadId) <<< execWriterT
+plan = unwrap <<< flip evalState 1 <<< execWriterT
 
 harvestEnergy :: PlanM Unit
 harvestEnergy = tellAction $ HarvestEnergy unit
@@ -156,19 +157,18 @@ interrupt interrupted interruptee =
                            <*> localPlan interruptee
                            <*> pure unit
 
--- TODO: Phantom type for ThreadId.
-fork :: PlanM Unit -> PlanM ThreadId
+fork :: PlanM Unit -> PlanM (PVar ThreadId)
 fork thread = do
   threadId <- get
   tellAction =<< Fork <$> localPlan thread <*> pure threadId <*> pure unit
-  modify nextThreadId
-  pure threadId
+  modify (_ + 1)
+  pure $ PVar threadId
   
-join :: ThreadId -> PlanM Unit
-join = tellAction <<< flip Join unit
+join :: PVar ThreadId -> PlanM Unit
+join (PVar threadId) = tellAction $ Join threadId unit
 
-kill :: ThreadId -> PlanM Unit
-kill = tellAction <<< flip Kill unit
+kill :: PVar ThreadId -> PlanM Unit
+kill (PVar threadId) = tellAction $ Kill threadId unit
 
 tellAction :: forall m. MonadWriter (Traversal Plan) m => PlanF Unit -> m Unit
 tellAction = tell <<< Traversal <<< Plan <<< liftF

@@ -1,4 +1,4 @@
-module Creep.State (CreepState, ThreadId, addThread, getThreadCount, hasThread, initState, initThreadId, nextThreadId, removeThread, runThread) where
+module Creep.State (CreepState, addThread, getThreadCount, hasThread, initState, removeThread, runThread) where
 
 import Control.Monad.Eff.Class (class MonadEff, liftEff)
 import Control.Monad.Eff.Random (RANDOM, randomInt)
@@ -13,17 +13,9 @@ import Data.Either (Either)
 import Data.Maybe (Maybe(..), isJust)
 import Data.Newtype (class Newtype, unwrap)
 import Data.Tuple (Tuple(..), fst)
-import Prelude (class Eq, class Ord, Unit, bind, discard, pure, unit, when, ($), (+), (-), (<$>), (<<<), (<=<), (==))
+import Prelude (Unit, bind, discard, pure, unit, when, ($), (-), (<$>), (<<<), (<=<), (==))
 
-newtype ThreadId = ThreadId Int
-
-derive instance newtypeThreadId :: Newtype ThreadId _
-derive newtype instance eqThreadId :: Eq ThreadId
-derive newtype instance ordThreadId :: Ord ThreadId
-derive newtype instance encodeJsonThreadId :: EncodeJson ThreadId
-derive newtype instance decodeJsonThreadId :: DecodeJson ThreadId
-
-type Threads t = Array (Tuple ThreadId t)
+type Threads t = Array (Tuple Int t)
 
 newtype CreepState t =
   CreepState {threads :: Threads t}
@@ -45,15 +37,9 @@ instance decodeJsonCreepState
         forall a. DecodeJson a => JObject -> String -> Either String a
       decodeField object = decodeJson <=< (object .? _)
 
-initThreadId :: ThreadId
-initThreadId = ThreadId 0
-
-nextThreadId :: ThreadId -> ThreadId
-nextThreadId (ThreadId i) = ThreadId $ i + 1
-
 initState :: forall t. t -> CreepState t
 initState thread =
-  CreepState {threads: [Tuple initThreadId thread]}
+  CreepState {threads: [Tuple 0 thread]}
 
 runThread ::
   forall t m e.
@@ -84,7 +70,7 @@ getThreadCount = length <<< (_.threads) <<< unwrap <$> get
 addThread ::
   forall t m.
     MonadState (CreepState t) m => MonadError ExecError m =>
-      ThreadId -> t -> m Unit
+      Int -> t -> m Unit
 addThread threadId thread = do
   {threads} <- unwrap <$> get
   when (isJust $ findThreadIndex threadId threads) $
@@ -94,7 +80,7 @@ addThread threadId thread = do
 removeThread ::
   forall t m.
     MonadState (CreepState t) m => MonadError ExecError m =>
-      ThreadId -> m Unit
+      Int -> m Unit
 removeThread threadId = do
   {threads} <- unwrap <$> get
   case findThreadIndex threadId threads of
@@ -105,11 +91,11 @@ removeThread threadId = do
         Just threads' ->
           put $ CreepState {threads: threads'}
 
-hasThread :: forall t m. MonadState (CreepState t) m => ThreadId -> m Boolean
+hasThread :: forall t m. MonadState (CreepState t) m => Int -> m Boolean
 hasThread threadId =
   isJust <<< findThreadIndex threadId <<< (_.threads) <<< unwrap <$> get
 
-findThreadIndex :: forall t. ThreadId -> Threads t -> Maybe Int
+findThreadIndex :: forall t. Int -> Threads t -> Maybe Int
 findThreadIndex threadId = findIndex $ (_ == threadId) <<< fst
 
 creepState :: forall t. Threads t -> CreepState t
