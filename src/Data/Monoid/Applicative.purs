@@ -1,4 +1,4 @@
-module Monoid (Traversal(..)) where
+module Data.Monoid.Applicative (Traversal(..)) where
 
 import Data.Monoid (class Monoid)
 import Data.Newtype (class Newtype, unwrap, wrap)

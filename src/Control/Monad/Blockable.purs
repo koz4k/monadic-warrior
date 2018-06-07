@@ -1,4 +1,4 @@
-module Blockable (class PartialMonoid, BlockableT, partialEmpty, partialAppend, block, reserve, runBlockableT, unblock) where
+module Control.Monad.Blockable (class PartialMonoid, BlockableT, partialEmpty, partialAppend, block, reserve, runBlockableT, unblock) where
 
 import Control.Monad.Eff.Class (class MonadEff)
 import Control.Monad.Error.Class (class MonadError, class MonadThrow)

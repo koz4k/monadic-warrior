@@ -15,9 +15,9 @@ import Data.Argonaut.Encode (class EncodeJson, encodeJson, (:=), (~>))
 import Data.Array (head, singleton)
 import Data.Either (Either(Right, Left), either, isRight)
 import Data.Maybe (Maybe(..))
+import Data.Monoid.Applicative (Traversal(..))
 import Data.Newtype (class Newtype, unwrap)
 import Data.Traversable (traverse_)
-import Monoid (Traversal(..))
 import Prelude (class Applicative, class Apply, class Bind, class Functor, class Monad, Unit, bind, discard, flip, map, pure, unit, unless, when, ($), (*>), (+), (<), (<$>), (<*>), (<<<), (<=<), (<>), (=<<), (>), (>>=), (>>>))
 import Screeps (CMD, Creep, MEMORY, TICK, TargetPosition(..))
 import Screeps.Creep (amtCarrying, carryCapacity)
@@ -31,7 +31,6 @@ data PlanF a
   = HarvestEnergy a
   | TransferEnergyToBase a
   -- Repeat takes "next" so that interpreting the free monad can terminate.
-  -- TODO: Take a proof of a ~ Unit instead.
   | Repeat (Plan Unit) a
   | Interrupt (Plan Unit) (Plan Unit) a
   | Fork (Plan Unit) Int a

@@ -1,6 +1,6 @@
 module Creep (assignPlan, hasPlan, runCreep) where
 
-import Blockable (runBlockableT)
+import Control.Monad.Blockable (runBlockableT)
 import Control.Monad.Eff.Class (class MonadEff, liftEff)
 import Control.Monad.Eff.Random (RANDOM)
 import Control.Monad.Except (class MonadError, throwError)
