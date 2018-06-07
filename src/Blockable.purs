@@ -1,5 +1,6 @@
 module Blockable (class PartialMonoid, BlockableT, partialEmpty, partialAppend, block, reserve, runBlockableT, unblock) where
 
+import Control.Monad.Eff.Class (class MonadEff)
 import Control.Monad.Error.Class (class MonadError, class MonadThrow)
 import Control.Monad.Maybe.Trans (MaybeT, runMaybeT)
 import Control.Monad.Rec.Class (class MonadRec)
@@ -32,13 +33,15 @@ derive newtype instance monadThrowBlockableT ::
   MonadThrow e m => MonadThrow e (BlockableT s m)
 derive newtype instance monadErrorBlockableT ::
   MonadError e m => MonadError e (BlockableT s m)
+derive newtype instance monadEffBlockableT ::
+  MonadEff e m => MonadEff e (BlockableT s m)
 
 instance monadTransBlockableT ::
-  PartialMonoid s => MonadTrans (BlockableT s) where
+    PartialMonoid s => MonadTrans (BlockableT s) where
   lift = reserve partialEmpty
 
 instance monadStateBlockableT ::
-  (PartialMonoid s, MonadState s' m) => MonadState s' (BlockableT s m) where
+    (PartialMonoid s, MonadState s' m) => MonadState s' (BlockableT s m) where
   state = lift <<< state
 
 runBlockableT ::

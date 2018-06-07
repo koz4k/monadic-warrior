@@ -2,16 +2,17 @@ module Creep (assignPlan, hasPlan, runCreep) where
 
 import Blockable (runBlockableT)
 import Control.Monad.Eff.Class (class MonadEff, liftEff)
+import Control.Monad.Eff.Random (RANDOM)
 import Control.Monad.Except (class MonadError, throwError)
 import Control.Monad.Except.Trans (runExceptT)
 import Control.Monad.Rec.Class (class MonadRec, Step(..), tailRecM)
 import Control.Monad.State (execStateT)
-import Creep.Exec (ExecError(..))
+import Creep.Exec (ExecError(BadReturnCode, ErrorMessage))
 import Creep.Plan (Plan, executePlan)
 import Creep.State (CreepState, getThreadCount, initState, runThread)
 import Data.Bifunctor (lmap)
 import Data.Either (either, isRight)
-import Prelude (Unit, bind, discard, flip, map, not, pure, show, unit, when, ($), (-), (<<<), (<=<), (<>), (==))
+import Prelude (Unit, bind, discard, flip, not, pure, show, unit, when, ($), (*), (-), (<<<), (<=<), (<>), (==))
 import Screeps (CMD, Creep, MEMORY, TICK)
 import Screeps.Creep (getMemory, name, setMemory, spawning)
 
@@ -20,12 +21,19 @@ assignPlan ::
 assignPlan creep = setState creep <<< initState
 
 hasPlan :: forall e m. MonadEff (memory :: MEMORY | e) m => Creep -> m Boolean
-hasPlan = map isRight <<< runExceptT <<< getState
+hasPlan creep = do
+  e <- runExceptT $ getState creep
+  pure $ isRight e
 
 runCreep ::
   forall e m.
     MonadRec m => MonadError String m =>
-    MonadEff (cmd :: CMD, memory :: MEMORY, tick :: TICK | e) m =>
+    MonadEff ( cmd :: CMD
+             , memory :: MEMORY
+             , random :: RANDOM
+             , tick :: TICK
+             | e
+             ) m =>
       Creep -> m Unit
 runCreep creep = when (not $ spawning creep) do
   state <- getState creep
@@ -43,7 +51,9 @@ runCreep creep = when (not $ spawning creep) do
           BadReturnCode code -> show code
     runThreads = do
       threadCount <- getThreadCount
-      flip tailRecM threadCount \i ->
+      -- Randomly choosing 3n threads out of n leaves out n/e^3 on average.
+      -- TODO: Go over threads in random order instead.
+      flip tailRecM (3 * threadCount) \i ->
         if i == 0
           then pure $ Done unit
           else do
