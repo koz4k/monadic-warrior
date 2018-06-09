@@ -5,11 +5,13 @@ import Control.Monad.Eff.Console (CONSOLE, log)
 import Control.Monad.Eff.Random (RANDOM)
 import Control.Monad.Except.Trans (runExceptT)
 import Creep (assignPlan, hasPlan, runCreep)
-import Creep.Plan (harvestEnergy, plan, repeat, transferEnergyToBase)
-import Data.Either (either)
+import Creep.Plan (harvestEnergy, plan, repeat, transferEnergyToBase, upgradeController)
+import Data.Either (Either(..), either)
+import Data.Monoid ((<>))
 import Data.Traversable (traverse)
 import Prelude (Unit, bind, discard, not, pure, void, when, ($), (<<<), (<=<), (=<<))
 import Screeps (CMD, MEMORY, TICK)
+import Screeps.Creep (getMemory)
 import Screeps.Game (creeps)
 
 main ::
@@ -20,14 +22,22 @@ main ::
       , tick :: TICK
       ) Unit
 main = do
-  void $ traverse assignPlanToNewCreep =<< creeps
+  void $ traverse (assignPlanToNewCreep) =<< creeps
   void $ traverse (handleError <<< runCreep) =<< creeps
   where
     assignPlanToNewCreep creep = do
       creepHasPlan <- hasPlan creep
       when (not creepHasPlan) do
-        assignPlan creep harvesterPlan
+        roleOrError <- getMemory creep "role"
+        case roleOrError of
+          Right "harvester" -> assignPlan creep harvesterPlan
+          Right "upgrader"  -> assignPlan creep upgraderPlan
+          Right role        -> log $ "unknown role " <> role
+          Left error        -> log error
     harvesterPlan = plan $ repeat do
       harvestEnergy
       transferEnergyToBase
+    upgraderPlan = plan $ repeat do
+      harvestEnergy
+      upgradeController
     handleError = either log pure <=< runExceptT

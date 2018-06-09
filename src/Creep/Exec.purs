@@ -1,4 +1,4 @@
-module Creep.Exec (Exec, ExecError(..), ExecStatus, catchReturnCode, harvestSource, moveTo, transferToStructure) where
+module Creep.Exec (Exec, ExecError(..), ExecStatus, catchReturnCode, harvestSource, moveTo, transferToStructure, upgradeController) where
 
 import Control.Monad.Blockable (class PartialMonoid, BlockableT, reserve)
 import Control.Monad.Eff (Eff)
@@ -8,7 +8,8 @@ import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..), curry)
 import Prelude (class Eq, Unit, bind, const, pure, unit, ($), (==))
 import Screeps (CMD, Creep, MEMORY, TargetPosition)
-import Screeps.Creep (harvestSource, moveTo, transferToStructure) as Creep
+import Screeps.Controller (Controller)
+import Screeps.Creep (harvestSource, moveTo, transferToStructure, upgradeController) as Creep
 import Screeps.Resource (ResourceType)
 import Screeps.ReturnCode (ReturnCode, err_tired, ok)
 import Screeps.Source (Source)
@@ -59,6 +60,13 @@ transferToStructure ::
       Creep -> a -> ResourceType -> Exec m Unit
 transferToStructure creep structure resourceType =
   liftSubAction creep $ Creep.transferToStructure creep structure resourceType
+
+upgradeController ::
+  forall e m.
+    MonadError ExecError m => MonadEff (cmd :: CMD | e) m =>
+      Creep -> Controller -> Exec m Unit
+upgradeController creep controller =
+  liftSubAction creep $ Creep.upgradeController creep controller
 
 liftSubAction ::
   forall e m.
