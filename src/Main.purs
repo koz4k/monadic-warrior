@@ -5,7 +5,7 @@ import Control.Monad.Eff.Console (CONSOLE, log)
 import Control.Monad.Eff.Random (RANDOM)
 import Control.Monad.Except.Trans (runExceptT)
 import Creep (assignPlan, hasPlan, runCreep)
-import Creep.Plan (harvestEnergy, plan, repeat, transferEnergyToBase, upgradeController)
+import Creep.Plan (build, harvestEnergy, interrupt, plan, repeat, transferEnergyToBase, upgradeController)
 import Data.Either (Either(..), either)
 import Data.Monoid ((<>))
 import Data.Traversable (traverse)
@@ -36,7 +36,7 @@ main = do
           Left error        -> log error
     harvesterPlan = plan $ repeat do
       harvestEnergy
-      transferEnergyToBase
+      transferEnergyToBase `interrupt` build
     upgraderPlan = plan $ repeat do
       harvestEnergy
       upgradeController

@@ -1,4 +1,4 @@
-module Creep.Plan (Plan, PVar, ThreadId, executePlan, fork, harvestEnergy, interleave, interrupt, join, kill, plan, repeat, transferEnergyToBase, upgradeController) where
+module Creep.Plan (Plan, PVar, ThreadId, build, executePlan, fork, harvestEnergy, interleave, interrupt, join, kill, plan, repeat, transferEnergyToBase, upgradeController) where
 
 import Control.Monad.Eff.Class (class MonadEff)
 import Control.Monad.Eff.Exception (message)
@@ -9,7 +9,7 @@ import Control.Monad.State (class MonadState, State, evalState, get, modify)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Writer (class MonadWriter, WriterT, execWriter, execWriterT, tell)
 import Creep.Exec (Exec, ExecError(ErrorMessage), catchReturnCode)
-import Creep.Exec (harvestSource, moveTo, transferToStructure, upgradeController) as Exec
+import Creep.Exec (build, harvestSource, moveTo, transferToStructure, upgradeController) as Exec
 import Creep.State (CreepState, addThread, hasThread, removeThread)
 import Data.Argonaut.Core (JObject, foldJsonArray, foldJsonObject, jsonEmptyObject)
 import Data.Argonaut.Decode (class DecodeJson, decodeJson, (.?))
@@ -23,15 +23,16 @@ import Data.Traversable (traverse_)
 import Prelude (class Applicative, class Apply, class Bind, class Functor, class Monad, Unit, bind, discard, flip, map, pure, unit, unless, when, ($), (*>), (+), (<), (<$>), (<*>), (<<<), (<=<), (<>), (=<<), (>), (>>=), (>>>))
 import Screeps (CMD, Creep, MEMORY, TICK, TargetPosition(..))
 import Screeps.Creep (amtCarrying, carryCapacity)
-import Screeps.FindType (find_my_spawns, find_sources)
+import Screeps.FindType (FindType, find_construction_sites, find_my_spawns, find_sources)
 import Screeps.Resource (resource_energy)
 import Screeps.ReturnCode (err_not_in_range)
 import Screeps.Room (controller)
-import Screeps.RoomObject (pos, room)
+import Screeps.RoomObject (class RoomObject, pos, room)
 import Screeps.RoomPosition (FindContext(..), findClosestByPath)
 
 data PlanF a
-  = HarvestEnergy a
+  = Build a
+  | HarvestEnergy a
   | TransferEnergyToBase a
   | UpgradeController a
   -- Repeat takes "next" so that interpreting the free monad can terminate.
@@ -43,6 +44,7 @@ data PlanF a
 
 instance functorPlanF :: Functor PlanF where
   map k f = case f of
+    Build f'                -> Build $ k f'
     HarvestEnergy f'        -> HarvestEnergy $ k f'
     TransferEnergyToBase f' -> TransferEnergyToBase $ k f'
     UpgradeController f'    -> UpgradeController $ k f'
@@ -66,6 +68,9 @@ instance encodeJsonPlan :: EncodeJson (Plan Unit) where
   encodeJson plan' =
     encodeJson $ execWriter $
       flip runFreeM (unwrap plan') $ flip (*>) <$> peelPure <*> case _ of
+        Build _ -> do
+          tellObject  $ "action" := "build"
+                     ~> jsonEmptyObject
         HarvestEnergy _ -> do
           tellObject  $ "action" := "harvestEnergy"
                      ~> jsonEmptyObject
@@ -107,6 +112,7 @@ instance decodeJsonPlan :: DecodeJson (Plan Unit) where
       decodeAction =
         foldJsonObject (throwError "expected an object") \object ->
           (lift $ object .? "action") >>= case _ of
+            "build" -> tellAction $ Build unit
             "harvestEnergy" -> tellAction $ HarvestEnergy unit
             "transferEnergyToBase" -> tellAction $ TransferEnergyToBase unit
             "upgradeController" -> tellAction $ UpgradeController unit
@@ -133,6 +139,7 @@ instance decodeJsonPlan :: DecodeJson (Plan Unit) where
 peelPure ::
   forall m a. Applicative m => PlanF (Free PlanF a) -> m (Free PlanF a)
 peelPure = case _ of
+  Build next -> pure next
   HarvestEnergy next -> pure next
   TransferEnergyToBase next -> pure next
   UpgradeController next -> pure next
@@ -150,6 +157,9 @@ data ThreadId
 
 plan :: PlanM Unit -> Plan Unit
 plan = unwrap <<< flip evalState 1 <<< execWriterT
+
+build :: PlanM Unit
+build = tellAction $ Build unit
 
 harvestEnergy :: PlanM Unit
 harvestEnergy = tellAction $ HarvestEnergy unit
@@ -208,32 +218,42 @@ executePlan creep = unwrap >>> resume >>> case _ of
   Right _ -> pure $ pure unit
   where
     peel action = case action of
+      Build next -> do
+        if amtCarrying creep resource_energy > 0
+          then do
+            maybeSite <- findClosest find_construction_sites
+            case maybeSite of
+              Just site -> do
+                Exec.build creep site `orMoveTo` site
+                stay
+              Nothing -> transition next
+          else transition next
       HarvestEnergy next -> do
         if amtCarrying creep resource_energy < carryCapacity creep
-          then case findClosestByPath (pos creep) $ OfType find_sources of
-            Right (Just source) -> do
-              Exec.harvestSource creep source
-                `catchNotInRange` (Exec.moveTo creep $ TargetObj source)
-              stay
-            Right Nothing -> throwError $ ErrorMessage "source not found"
-            Left error -> throwError $ ErrorMessage $ message error
+          then do
+            maybeSource <- findClosest find_sources
+            case maybeSource of
+              Just source -> do
+                Exec.harvestSource creep source `orMoveTo` source
+                stay
+              Nothing -> throwError $ ErrorMessage "source not found"
           else transition next
       TransferEnergyToBase next -> do
         if amtCarrying creep resource_energy > 0
-          then case findClosestByPath (pos creep) $ OfType find_my_spawns of
-            Right (Just spawn) -> do
-              Exec.transferToStructure creep spawn resource_energy
-                `catchNotInRange` (Exec.moveTo creep $ TargetObj spawn)
-              stay
-            Right Nothing -> throwError $ ErrorMessage "spawn not found"
-            Left error -> throwError $ ErrorMessage $ message error
+          then do
+            maybeSpawn <- findClosest find_my_spawns
+            case maybeSpawn of
+              Just spawn -> do
+                Exec.transferToStructure creep spawn resource_energy
+                  `orMoveTo` spawn
+                stay
+              Nothing -> throwError $ ErrorMessage "spawn not found"
           else transition next
       UpgradeController next -> do
         if amtCarrying creep resource_energy > 0
           then case controller $ room creep of
             Just ctrl -> do
-              Exec.upgradeController creep ctrl
-                `catchNotInRange` (Exec.moveTo creep $ TargetObj ctrl)
+              Exec.upgradeController creep ctrl `orMoveTo` ctrl
               stay
             Nothing -> throwError $ ErrorMessage "controller not found"
           else transition next
@@ -277,6 +297,14 @@ executePlan creep = unwrap >>> resume >>> case _ of
         transition next
       where
         plan' = Plan $ wrap action
+        findClosest :: forall a. FindType a -> Exec m (Maybe a)
+        findClosest findType =
+          case findClosestByPath (pos creep) $ OfType findType of
+            Right object -> pure object
+            Left error -> throwError $ ErrorMessage $ message error
+        orMoveTo :: forall a. RoomObject a => Exec m Unit -> a -> Exec m Unit
+        orMoveTo action' object =
+          action' `catchNotInRange` (Exec.moveTo creep $ TargetObj object)
         catchNotInRange = catchReturnCode err_not_in_range
         stay = pure $ plan'
         transition = executePlan creep <<< Plan

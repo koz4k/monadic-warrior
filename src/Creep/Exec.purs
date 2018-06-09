@@ -1,4 +1,4 @@
-module Creep.Exec (Exec, ExecError(..), ExecStatus, catchReturnCode, harvestSource, moveTo, transferToStructure, upgradeController) where
+module Creep.Exec (Exec, ExecError(..), ExecStatus, build, catchReturnCode, harvestSource, moveTo, transferToStructure, upgradeController) where
 
 import Control.Monad.Blockable (class PartialMonoid, BlockableT, reserve)
 import Control.Monad.Eff (Eff)
@@ -8,8 +8,9 @@ import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..), curry)
 import Prelude (class Eq, Unit, bind, const, pure, unit, ($), (==))
 import Screeps (CMD, Creep, MEMORY, TargetPosition)
+import Screeps.ConstructionSite (ConstructionSite)
 import Screeps.Controller (Controller)
-import Screeps.Creep (harvestSource, moveTo, transferToStructure, upgradeController) as Creep
+import Screeps.Creep (build, harvestSource, moveTo, transferToStructure, upgradeController) as Creep
 import Screeps.Resource (ResourceType)
 import Screeps.ReturnCode (ReturnCode, err_tired, ok)
 import Screeps.Source (Source)
@@ -33,6 +34,13 @@ data ExecError
 derive instance eqExecError :: Eq ExecError
 
 type Exec = BlockableT ExecStatus
+
+build ::
+  forall e m.
+    MonadError ExecError m => MonadEff (cmd :: CMD | e) m =>
+      Creep -> ConstructionSite -> Exec m Unit
+build creep site =
+  liftSubAction creep $ Creep.build creep site
 
 harvestSource ::
   forall e m.
@@ -82,7 +90,7 @@ liftSubAction creep subAction =
 catchReturnCode ::
   forall m.
     MonadError ExecError m =>
-      ReturnCode -> Exec m Unit -> Exec m Unit -> Exec m Unit
+      ReturnCode -> m Unit -> m Unit -> m Unit
 catchReturnCode code action handler = action `catchIt` const handler
   where
     catchIt = catchJust \error ->
