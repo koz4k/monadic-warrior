@@ -14,21 +14,23 @@ import Creep.State (CreepState, addThread, hasThread, removeThread)
 import Data.Argonaut.Core (JObject, foldJsonArray, foldJsonObject, jsonEmptyObject)
 import Data.Argonaut.Decode (class DecodeJson, decodeJson, (.?))
 import Data.Argonaut.Encode (class EncodeJson, encodeJson, (:=), (~>))
-import Data.Array (singleton)
+import Data.Array (elem, head, singleton)
 import Data.Either (Either(Right, Left), either, isRight)
 import Data.Maybe (Maybe(..))
 import Data.Monoid.Applicative (Traversal(..))
 import Data.Newtype (class Newtype, unwrap)
 import Data.Traversable (traverse_)
-import Prelude (class Applicative, class Apply, class Bind, class Functor, class Monad, Unit, bind, discard, flip, map, pure, unit, unless, when, ($), (*>), (+), (<), (<$>), (<*>), (<<<), (<=<), (<>), (=<<), (>), (>>=), (>>>))
+import Prelude (class Applicative, class Apply, class Bind, class Functor, class Monad, Unit, bind, discard, flip, map, pure, unit, unless, when, ($), (&&), (*>), (+), (<), (<$>), (<*>), (<<<), (<=<), (<>), (=<<), (>), (>>=), (>>>))
 import Screeps (CMD, Creep, MEMORY, TICK, TargetPosition(..))
 import Screeps.Creep (amtCarrying, carryCapacity)
-import Screeps.FindType (FindType, find_construction_sites, find_my_spawns, find_sources)
+import Screeps.FindType (FindType, find_construction_sites, find_my_spawns, find_my_structures, find_sources)
+import Screeps.Refillable (energy, energyCapacity, toRefillable)
 import Screeps.Resource (resource_energy)
 import Screeps.ReturnCode (err_not_in_range)
-import Screeps.Room (controller)
+import Screeps.Room (controller, find')
 import Screeps.RoomObject (class RoomObject, pos, room)
-import Screeps.RoomPosition (FindContext(..), findClosestByPath)
+import Screeps.RoomPosition (FindContext(..), ClosestPathOptions, closestPathOpts, findClosestByPath, findClosestByPath')
+import Screeps.Structure (structureType, structure_extension, structure_spawn)
 
 data PlanF a
   = Build a
@@ -240,14 +242,21 @@ executePlan creep = unwrap >>> resume >>> case _ of
           else transition next
       TransferEnergyToBase next -> do
         if amtCarrying creep resource_energy > 0
-          then do
-            maybeSpawn <- findClosest find_my_spawns
-            case maybeSpawn of
-              Just spawn -> do
-                Exec.transferToStructure creep spawn resource_energy
-                  `orMoveTo` spawn
+          then let
+            structures = find' (room creep) find_my_structures \structure ->
+              case toRefillable structure of
+                Just structure' ->
+                  energy structure' < energyCapacity structure' &&
+                    structureType structure `elem`
+                      [structure_spawn, structure_extension]
+                Nothing -> false
+            in case head structures of
+              Just structure -> do
+                Exec.transferToStructure creep structure resource_energy
+                  `orMoveTo` structure
                 stay
-              Nothing -> throwError $ ErrorMessage "spawn not found"
+              Nothing ->
+                throwError $ ErrorMessage "refillable structure not found"
           else transition next
       UpgradeController next -> do
         if amtCarrying creep resource_energy > 0
