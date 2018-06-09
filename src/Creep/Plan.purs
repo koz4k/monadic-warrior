@@ -1,4 +1,4 @@
-module Creep.Plan (Plan, PVar, ThreadId, executePlan, fork, harvestEnergy, interrupt, join, kill, plan, repeat, transferEnergyToBase) where
+module Creep.Plan (Plan, PVar, ThreadId, executePlan, fork, harvestEnergy, interleave, interrupt, join, kill, plan, repeat, transferEnergyToBase) where
 
 import Control.Monad.Eff.Class (class MonadEff)
 import Control.Monad.Except (class MonadError)
@@ -168,6 +168,12 @@ join (PVar threadId) = tellAction $ Join threadId unit
 
 kill :: PVar ThreadId -> PlanM Unit
 kill (PVar threadId) = tellAction $ Kill threadId unit
+
+interleave :: PlanM Unit -> PlanM Unit -> PlanM Unit
+interleave interleaved interleavee = do
+  threadId <- fork interleavee
+  interleaved
+  kill threadId
 
 tellAction :: forall m. MonadWriter (Traversal Plan) m => PlanF Unit -> m Unit
 tellAction = tell <<< Traversal <<< Plan <<< liftF
