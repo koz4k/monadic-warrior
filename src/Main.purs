@@ -5,7 +5,7 @@ import Control.Monad.Eff.Console (CONSOLE, log)
 import Control.Monad.Eff.Random (RANDOM)
 import Control.Monad.Except.Trans (runExceptT)
 import Creep (assignPlan, hasPlan, runCreep)
-import Creep.Plan (build, harvestEnergy, interrupt, plan, repeat, transferEnergyToBase, upgradeController)
+import Creep.Plan (build, fight, harvestEnergy, interleave, interrupt, plan, repeat, transferEnergyToBase, upgradeController)
 import Data.Either (Either(..), either)
 import Data.Monoid ((<>))
 import Data.Traversable (traverse)
@@ -34,9 +34,10 @@ main = do
           Right "upgrader"  -> assignPlan creep upgraderPlan
           Right role        -> log $ "unknown role " <> role
           Left error        -> log error
-    harvesterPlan = plan $ repeat do
+    harvesterPlan = plan $ (repeat do
       harvestEnergy
-      transferEnergyToBase `interrupt` build
+      transferEnergyToBase `interrupt` build)
+        `interleave` fight
     upgraderPlan = plan $ repeat do
       harvestEnergy
       upgradeController

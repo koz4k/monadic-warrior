@@ -1,4 +1,4 @@
-module Creep.Plan (Plan, PVar, ThreadId, build, executePlan, fork, harvestEnergy, interleave, interrupt, join, kill, plan, repeat, transferEnergyToBase, upgradeController) where
+module Creep.Plan (Plan, PVar, ThreadId, build, executePlan, fight, fork, harvestEnergy, interleave, interrupt, join, kill, plan, repeat, transferEnergyToBase, upgradeController) where
 
 import Control.Monad.Eff.Class (class MonadEff)
 import Control.Monad.Eff.Exception (message)
@@ -9,7 +9,7 @@ import Control.Monad.State (class MonadState, State, evalState, get, modify)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Writer (class MonadWriter, WriterT, execWriter, execWriterT, tell)
 import Creep.Exec (Exec, ExecError(ErrorMessage), catchReturnCode)
-import Creep.Exec (build, harvestSource, moveTo, transferToStructure, upgradeController) as Exec
+import Creep.Exec (build, harvestSource, moveTo, rangedAttackCreep, transferToStructure, upgradeController) as Exec
 import Creep.State (CreepState, addThread, hasThread, removeThread)
 import Data.Argonaut.Core (JObject, foldJsonArray, foldJsonObject, jsonEmptyObject)
 import Data.Argonaut.Decode (class DecodeJson, decodeJson, (.?))
@@ -23,17 +23,18 @@ import Data.Traversable (traverse_)
 import Prelude (class Applicative, class Apply, class Bind, class Functor, class Monad, Unit, bind, discard, flip, map, pure, unit, unless, when, ($), (&&), (*>), (+), (<), (<$>), (<*>), (<<<), (<=<), (<>), (=<<), (>), (>>=), (>>>))
 import Screeps (CMD, Creep, MEMORY, TICK, TargetPosition(..))
 import Screeps.Creep (amtCarrying, carryCapacity)
-import Screeps.FindType (FindType, find_construction_sites, find_my_spawns, find_my_structures, find_sources)
+import Screeps.FindType (FindType, find_construction_sites, find_hostile_creeps, find_my_structures, find_sources)
 import Screeps.Refillable (energy, energyCapacity, toRefillable)
 import Screeps.Resource (resource_energy)
 import Screeps.ReturnCode (err_not_in_range)
 import Screeps.Room (controller, find')
 import Screeps.RoomObject (class RoomObject, pos, room)
-import Screeps.RoomPosition (FindContext(..), ClosestPathOptions, closestPathOpts, findClosestByPath, findClosestByPath')
+import Screeps.RoomPosition (FindContext(OfType), findClosestByPath)
 import Screeps.Structure (structureType, structure_extension, structure_spawn)
 
 data PlanF a
   = Build a
+  | Fight a
   | HarvestEnergy a
   | TransferEnergyToBase a
   | UpgradeController a
@@ -47,6 +48,7 @@ data PlanF a
 instance functorPlanF :: Functor PlanF where
   map k f = case f of
     Build f'                -> Build $ k f'
+    Fight f'                -> Fight $ k f'
     HarvestEnergy f'        -> HarvestEnergy $ k f'
     TransferEnergyToBase f' -> TransferEnergyToBase $ k f'
     UpgradeController f'    -> UpgradeController $ k f'
@@ -72,6 +74,9 @@ instance encodeJsonPlan :: EncodeJson (Plan Unit) where
       flip runFreeM (unwrap plan') $ flip (*>) <$> peelPure <*> case _ of
         Build _ -> do
           tellObject  $ "action" := "build"
+                     ~> jsonEmptyObject
+        Fight _ -> do
+          tellObject  $ "action" := "fight"
                      ~> jsonEmptyObject
         HarvestEnergy _ -> do
           tellObject  $ "action" := "harvestEnergy"
@@ -115,6 +120,7 @@ instance decodeJsonPlan :: DecodeJson (Plan Unit) where
         foldJsonObject (throwError "expected an object") \object ->
           (lift $ object .? "action") >>= case _ of
             "build" -> tellAction $ Build unit
+            "fight" -> tellAction $ Fight unit
             "harvestEnergy" -> tellAction $ HarvestEnergy unit
             "transferEnergyToBase" -> tellAction $ TransferEnergyToBase unit
             "upgradeController" -> tellAction $ UpgradeController unit
@@ -142,6 +148,7 @@ peelPure ::
   forall m a. Applicative m => PlanF (Free PlanF a) -> m (Free PlanF a)
 peelPure = case _ of
   Build next -> pure next
+  Fight next -> pure next
   HarvestEnergy next -> pure next
   TransferEnergyToBase next -> pure next
   UpgradeController next -> pure next
@@ -162,6 +169,9 @@ plan = unwrap <<< flip evalState 1 <<< execWriterT
 
 build :: PlanM Unit
 build = tellAction $ Build unit
+
+fight :: PlanM Unit
+fight = tellAction $ Fight unit
 
 harvestEnergy :: PlanM Unit
 harvestEnergy = tellAction $ HarvestEnergy unit
@@ -230,6 +240,13 @@ executePlan creep = unwrap >>> resume >>> case _ of
                 stay
               Nothing -> transition next
           else transition next
+      Fight next -> do
+        maybeEnemy <- findClosest find_hostile_creeps
+        case maybeEnemy of
+          Just enemy ->
+            (Exec.rangedAttackCreep creep enemy *> stay)
+              `catchNotInRange` transition next
+          Nothing -> transition next
       HarvestEnergy next -> do
         if amtCarrying creep resource_energy < carryCapacity creep
           then do
@@ -314,7 +331,8 @@ executePlan creep = unwrap >>> resume >>> case _ of
         orMoveTo :: forall a. RoomObject a => Exec m Unit -> a -> Exec m Unit
         orMoveTo action' object =
           action' `catchNotInRange` (Exec.moveTo creep $ TargetObj object)
+        catchNotInRange :: forall a. Exec m a -> Exec m a -> Exec m a
         catchNotInRange = catchReturnCode err_not_in_range
-        stay = pure $ plan'
+        stay = pure plan'
         transition = executePlan creep <<< Plan
         isPure = isRight <<< resume <<< unwrap
