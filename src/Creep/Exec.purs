@@ -5,7 +5,7 @@ import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Class (class MonadEff, liftEff)
 import Control.Monad.Error.Class (class MonadError, catchJust, throwError)
 import Data.Maybe (Maybe(..))
-import Data.Tuple (Tuple(..), curry)
+import Data.Tuple (Tuple(Tuple))
 import Prelude (class Eq, Unit, bind, const, pure, unit, ($), (==))
 import Screeps (CMD, Creep, MEMORY, TargetPosition)
 import Screeps.ConstructionSite (ConstructionSite)
@@ -16,16 +16,34 @@ import Screeps.ReturnCode (ReturnCode, err_tired, ok)
 import Screeps.Source (Source)
 import Screeps.Structure (class Structure)
 
-data ExecStatus
-  = NotExecuted
-  | Executed
+newtype ExecStatus
+  = ExecStatus { moved :: Boolean
+               , other :: Boolean
+               }
 
 instance partialMonoidExecStatus :: PartialMonoid ExecStatus where
-  partialEmpty = NotExecuted
-  partialAppend = curry $ case _ of
-    Tuple NotExecuted NotExecuted -> Just NotExecuted
-    Tuple Executed Executed -> Nothing
-    _ -> Just Executed
+  partialEmpty = ExecStatus {moved: false, other: false}
+  -- TODO: Rewrite using purescript-record (PureScript 0.12 needed).
+  partialAppend (ExecStatus rec1) (ExecStatus rec2) = do
+    union1 <- union getMoved setMoved rec1 rec2
+    union2 <- union getOther setOther union1 rec2
+    pure $ ExecStatus union2
+    where
+      union get set rec1' rec2' =
+        case Tuple (get rec1') (get rec2') of
+          Tuple true true -> Nothing
+          Tuple false false -> Just rec1'
+          _ -> Just $ set rec1' true
+      getMoved = (_.moved)
+      setMoved r = r {moved = _}
+      getOther = (_.other)
+      setOther r = r {other = _}
+
+statusMoved :: ExecStatus
+statusMoved = ExecStatus {moved: true, other: false}
+
+statusOther :: ExecStatus
+statusOther = ExecStatus {moved: false, other: true}
 
 data ExecError
   = ErrorMessage String
@@ -40,21 +58,21 @@ build ::
     MonadError ExecError m => MonadEff (cmd :: CMD | e) m =>
       Creep -> ConstructionSite -> Exec m Unit
 build creep site =
-  liftSubAction creep $ Creep.build creep site
+  liftSubAction creep statusOther $ Creep.build creep site
 
 rangedAttackCreep ::
   forall e m.
     MonadError ExecError m => MonadEff (cmd :: CMD | e) m =>
       Creep -> Creep -> Exec m Unit
 rangedAttackCreep creep enemy =
-  liftSubAction creep $ Creep.rangedAttackCreep creep enemy
+  liftSubAction creep statusOther $ Creep.rangedAttackCreep creep enemy
 
 harvestSource ::
   forall e m.
     MonadError ExecError m => MonadEff (cmd :: CMD | e) m =>
       Creep -> Source -> Exec m Unit
 harvestSource creep source =
-  liftSubAction creep $ Creep.harvestSource creep source
+  liftSubAction creep statusOther $ Creep.harvestSource creep source
 
 moveTo ::
   forall e m a.
@@ -62,7 +80,7 @@ moveTo ::
     MonadEff (cmd :: CMD, memory :: MEMORY | e) m =>
       Creep -> TargetPosition a -> Exec m Unit
 moveTo creep target =
-  liftSubAction creep do
+  liftSubAction creep statusMoved do
     code <- Creep.moveTo creep target
     -- Ignore err_tired so that running moveTo twice blocks in this case.
     pure $ if code == err_tired
@@ -74,21 +92,22 @@ transferToStructure ::
     MonadError ExecError m => MonadEff (cmd :: CMD | e) m => Structure a =>
       Creep -> a -> ResourceType -> Exec m Unit
 transferToStructure creep structure resourceType =
-  liftSubAction creep $ Creep.transferToStructure creep structure resourceType
+  liftSubAction creep statusOther $
+    Creep.transferToStructure creep structure resourceType
 
 upgradeController ::
   forall e m.
     MonadError ExecError m => MonadEff (cmd :: CMD | e) m =>
       Creep -> Controller -> Exec m Unit
 upgradeController creep controller =
-  liftSubAction creep $ Creep.upgradeController creep controller
+  liftSubAction creep statusOther $ Creep.upgradeController creep controller
 
 liftSubAction ::
   forall e m.
     MonadError ExecError m => MonadEff e m =>
-      Creep -> Eff e ReturnCode -> Exec m Unit
-liftSubAction creep subAction =
-  reserve Executed do
+      Creep -> ExecStatus -> Eff e ReturnCode -> Exec m Unit
+liftSubAction creep status subAction =
+  reserve status do
     code <- liftEff subAction
     if code == ok
       then pure unit

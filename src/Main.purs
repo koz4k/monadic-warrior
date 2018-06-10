@@ -37,7 +37,7 @@ main = do
     harvesterPlan = plan $ (repeat do
       harvestEnergy
       transferEnergyToBase `interrupt` build)
-        `interleave` fight
+        `interleave` repeat fight
     upgraderPlan = plan $ repeat do
       harvestEnergy
       upgradeController
