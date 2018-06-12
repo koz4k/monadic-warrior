@@ -5,10 +5,11 @@ import Control.Monad.Eff.Exception (message)
 import Control.Monad.Except (class MonadError)
 import Control.Monad.Except.Trans (throwError)
 import Control.Monad.Free (Free, liftF, resume, runFreeM, wrap)
+import Control.Monad.Holder (class MonadHolder)
 import Control.Monad.State (class MonadState, State, evalState, get, modify)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Writer (class MonadWriter, WriterT, execWriter, execWriterT, tell)
-import Creep.Exec (Exec, ExecError(ErrorMessage), catchReturnCode)
+import Creep.Exec (ExecError(ErrorMessage), ExecStatus, catchReturnCode)
 import Creep.Exec (build, harvestSource, moveTo, rangedAttackCreep, transferToStructure, upgradeController) as Exec
 import Creep.State (CreepState, addThread, hasThread, removeThread)
 import Data.Argonaut.Core (JObject, foldJsonArray, foldJsonObject, jsonEmptyObject)
@@ -221,10 +222,10 @@ localPlan = map unwrap <<< lift <<< execWriterT
 
 executePlan ::
   forall e m.
-    MonadState (CreepState (Plan Unit)) m =>
+    MonadHolder ExecStatus m => MonadState (CreepState (Plan Unit)) m =>
     MonadError ExecError m =>
     MonadEff (cmd :: CMD, memory :: MEMORY, tick :: TICK | e) m =>
-      Creep -> Plan Unit -> Exec m (Plan Unit)
+      Creep -> Plan Unit -> m (Plan Unit)
 executePlan creep = unwrap >>> resume >>> case _ of
   Left action -> peel action
   Right _ -> pure $ pure unit
@@ -323,15 +324,15 @@ executePlan creep = unwrap >>> resume >>> case _ of
         transition next
       where
         plan' = Plan $ wrap action
-        findClosest :: forall a. FindType a -> Exec m (Maybe a)
+        findClosest :: forall a. FindType a -> m (Maybe a)
         findClosest findType =
           case findClosestByPath (pos creep) $ OfType findType of
             Right object -> pure object
             Left error -> throwError $ ErrorMessage $ message error
-        orMoveTo :: forall a. RoomObject a => Exec m Unit -> a -> Exec m Unit
+        orMoveTo :: forall a. RoomObject a => m Unit -> a -> m Unit
         orMoveTo action' object =
           action' `catchNotInRange` (Exec.moveTo creep $ TargetObj object)
-        catchNotInRange :: forall a. Exec m a -> Exec m a -> Exec m a
+        catchNotInRange :: forall a. m a -> m a -> m a
         catchNotInRange = catchReturnCode err_not_in_range
         stay = pure plan'
         transition = executePlan creep <<< Plan

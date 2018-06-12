@@ -1,4 +1,4 @@
-module Control.Monad.Holder (class PartialMonoid, HolderT, partialEmpty, partialAppend, reserve, runHolderT) where
+module Control.Monad.Holder (class PartialMonoid, class MonadHolder, HolderT, partialEmpty, partialAppend, reserve, runHolderT) where
 
 import Control.Monad.Eff.Class (class MonadEff)
 import Control.Monad.Error.Class (class MonadError, class MonadThrow)
@@ -7,12 +7,15 @@ import Control.Monad.State (class MonadState, get, put, state)
 import Control.Monad.State.Trans (StateT, evalStateT)
 import Control.Monad.Trans.Class (class MonadTrans, lift)
 import Data.Maybe (Maybe(..))
-import Data.Newtype (class Newtype)
+import Data.Newtype (class Newtype, unwrap)
 import Prelude (class Applicative, class Apply, class Bind, class Functor, class Monad, bind, discard, pure, (<$>), (<<<))
 
 class PartialMonoid a where
   partialEmpty :: a
   partialAppend :: a -> a -> Maybe a
+
+class (Monad m, PartialMonoid r) <= MonadHolder r m | m -> r where
+  reserve :: forall a. r -> m a -> m (Maybe a)
 
 newtype HolderT r m a = HolderT (StateT r m a)
 
@@ -25,6 +28,17 @@ derive newtype instance applicativeHolderT ::
   Monad m => Applicative (HolderT r m)
 derive newtype instance bindHolderT :: Monad m => Bind (HolderT r m)
 derive newtype instance monadHolderT :: Monad m => Monad (HolderT r m)
+
+instance monadHolderHolderT ::
+    (Monad m, PartialMonoid r) => MonadHolder r (HolderT r m) where
+  reserve resources action = HolderT do
+    prevStatus <- get
+    case partialAppend prevStatus resources of
+      Just newResources -> do
+        put newResources
+        Just <$> unwrap action
+      Nothing -> pure Nothing
+
 derive newtype instance monadRecHolderT ::
   MonadRec m => MonadRec (HolderT r m)
 derive newtype instance monadThrowHolderT ::
@@ -45,14 +59,3 @@ instance monadStateHolderT ::
 runHolderT ::
   forall r m a. PartialMonoid r => Monad m => HolderT r m a -> m a
 runHolderT (HolderT h) = evalStateT h partialEmpty
-
-reserve ::
-  forall r m a.
-    PartialMonoid r => Monad m => r -> m a -> HolderT r m (Maybe a)
-reserve resources action = HolderT do
-  prevStatus <- get
-  case partialAppend prevStatus resources of
-    Just newResources -> do
-      put newResources
-      Just <$> lift action
-    Nothing -> pure Nothing
