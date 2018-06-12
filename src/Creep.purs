@@ -1,6 +1,6 @@
 module Creep (assignPlan, hasPlan, runCreep) where
 
-import Control.Monad.Blockable (runBlockableT)
+import Control.Monad.Holder (runHolderT)
 import Control.Monad.Eff.Class (class MonadEff, liftEff)
 import Control.Monad.Eff.Random (RANDOM)
 import Control.Monad.Except (class MonadError, throwError)
@@ -38,7 +38,7 @@ runCreep ::
 runCreep creep = when (not $ spawning creep) do
   state <- getState creep
   state' <-
-    renderError $ flip execStateT state $ runBlockableT $ runThreads $
+    renderError $ flip execStateT state $ runHolderT $ runThreads $
       executePlan creep
   setState creep state'
   where

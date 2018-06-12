@@ -1,12 +1,12 @@
 module Creep.Exec (Exec, ExecError(..), ExecStatus, build, catchReturnCode, harvestSource, moveTo, rangedAttackCreep, transferToStructure, upgradeController) where
 
-import Control.Monad.Blockable (class PartialMonoid, BlockableT, reserve)
 import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Class (class MonadEff, liftEff)
 import Control.Monad.Error.Class (class MonadError, catchJust, throwError)
+import Control.Monad.Holder (class PartialMonoid, HolderT, reserve)
 import Data.Maybe (Maybe(..))
-import Data.Tuple (Tuple(Tuple))
-import Prelude (class Eq, Unit, bind, const, pure, unit, ($), (==))
+import Data.Tuple (Tuple(..))
+import Prelude (class Eq, Unit, bind, const, pure, unit, void, ($), (==))
 import Screeps (CMD, Creep, MEMORY, TargetPosition)
 import Screeps.ConstructionSite (ConstructionSite)
 import Screeps.Controller (Controller)
@@ -51,7 +51,7 @@ data ExecError
 
 derive instance eqExecError :: Eq ExecError
 
-type Exec = BlockableT ExecStatus
+type Exec = HolderT ExecStatus
 
 build ::
   forall e m.
@@ -107,7 +107,7 @@ liftSubAction ::
     MonadError ExecError m => MonadEff e m =>
       Creep -> ExecStatus -> Eff e ReturnCode -> Exec m Unit
 liftSubAction creep status subAction =
-  reserve status do
+  void $ reserve status do
     code <- liftEff subAction
     if code == ok
       then pure unit
