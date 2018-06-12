@@ -5,14 +5,14 @@ import Control.Monad.Eff.Class (class MonadEff, liftEff)
 import Control.Monad.Eff.Random (RANDOM)
 import Control.Monad.Except (class MonadError, throwError)
 import Control.Monad.Except.Trans (runExceptT)
-import Control.Monad.Rec.Class (class MonadRec, Step(..), tailRecM)
+import Control.Monad.Rec.Class (class MonadRec)
 import Control.Monad.State (execStateT)
 import Creep.Exec (ExecError(BadReturnCode, ErrorMessage))
 import Creep.Plan (Plan, executePlan)
-import Creep.State (CreepState, getThreadCount, initState, runThread)
+import Creep.State (CreepState, initState, runThreads)
 import Data.Bifunctor (lmap)
 import Data.Either (either, isRight)
-import Prelude (Unit, bind, discard, flip, not, pure, show, unit, when, ($), (*), (-), (<<<), (<=<), (<>), (==))
+import Prelude (Unit, bind, flip, not, pure, show, when, ($), (<<<), (<=<), (<>))
 import Screeps (CMD, Creep, MEMORY, TICK)
 import Screeps.Creep (getMemory, name, setMemory, spawning)
 
@@ -37,7 +37,9 @@ runCreep ::
       Creep -> m Unit
 runCreep creep = when (not $ spawning creep) do
   state <- getState creep
-  state' <- renderError $ flip execStateT state $ runBlockableT runThreads
+  state' <-
+    renderError $ flip execStateT state $ runBlockableT $ runThreads $
+      executePlan creep
   setState creep state'
   where
     renderError =
@@ -49,16 +51,6 @@ runCreep creep = when (not $ spawning creep) do
         renderDetails details = case details of
           ErrorMessage message -> message
           BadReturnCode code -> show code
-    runThreads = do
-      threadCount <- getThreadCount
-      -- Randomly choosing 3n threads out of n leaves out n/e^3 on average.
-      -- TODO: Go over threads in random order instead.
-      flip tailRecM (3 * threadCount) \i ->
-        if i == 0
-          then pure $ Done unit
-          else do
-            runThread $ executePlan creep
-            pure $ Loop $ i - 1
 
 setState ::
   forall e m.
