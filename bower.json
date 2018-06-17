@@ -12,7 +12,8 @@
     "purescript-screeps-classy": "^3.0.1",
     "purescript-free": "^4.1.0",
     "purescript-tailrec": "^3.3.0",
-    "purescript-random": "3.0.0"
+    "purescript-random": "3.0.0",
+    "purescript-data-default": "^0.1.0"
   },
   "devDependencies": {
     "purescript-psci-support": "^3.0.0"

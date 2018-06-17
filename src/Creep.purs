@@ -1,14 +1,14 @@
 module Creep (assignPlan, hasPlan, runCreep) where
 
-import Control.Monad.Holder (runHolderT)
 import Control.Monad.Eff.Class (class MonadEff, liftEff)
 import Control.Monad.Eff.Random (RANDOM)
 import Control.Monad.Except (class MonadError, throwError)
 import Control.Monad.Except.Trans (runExceptT)
+import Control.Monad.Holder (runHolderT)
 import Control.Monad.Rec.Class (class MonadRec)
 import Control.Monad.State (execStateT)
 import Creep.Exec (ExecError(BadReturnCode, ErrorMessage))
-import Creep.Plan (Plan, executePlan)
+import Creep.Plan (CreepPlan, executePlan)
 import Creep.State (CreepState, initState, runThreads)
 import Data.Bifunctor (lmap)
 import Data.Either (either, isRight)
@@ -17,7 +17,7 @@ import Screeps (CMD, Creep, MEMORY, TICK)
 import Screeps.Creep (getMemory, name, setMemory, spawning)
 
 assignPlan ::
-  forall e m. MonadEff (memory :: MEMORY | e) m => Creep -> Plan Unit -> m Unit
+  forall e m. MonadEff (memory :: MEMORY | e) m => Creep -> CreepPlan Unit -> m Unit
 assignPlan creep = setState creep <<< initState
 
 hasPlan :: forall e m. MonadEff (memory :: MEMORY | e) m => Creep -> m Boolean
@@ -55,14 +55,14 @@ runCreep creep = when (not $ spawning creep) do
 setState ::
   forall e m.
     MonadEff (memory :: MEMORY | e) m =>
-      Creep -> CreepState (Plan Unit) -> m Unit
+      Creep -> CreepState (CreepPlan Unit) -> m Unit
 setState creep = liftEff <<< flip setMemory "state" creep
 
 getState ::
   forall e m.
     MonadError String m =>
     MonadEff (memory :: MEMORY | e) m =>
-      Creep -> m (CreepState (Plan Unit))
+      Creep -> m (CreepState (CreepPlan Unit))
 getState creep = do
   eitherState <- liftEff $ getMemory creep "state"
   either throwError pure eitherState
