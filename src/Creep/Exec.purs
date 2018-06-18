@@ -61,7 +61,7 @@ build ::
     MonadEff (cmd :: CMD | e) m =>
       Creep -> ConstructionSite -> m Unit
 build creep site =
-  liftSubAction creep statusOther $ Creep.build creep site
+  liftSubAction statusOther $ Creep.build creep site
 
 rangedAttackCreep ::
   forall e m.
@@ -69,7 +69,7 @@ rangedAttackCreep ::
     MonadEff (cmd :: CMD | e) m =>
       Creep -> Creep -> m Unit
 rangedAttackCreep creep enemy =
-  liftSubAction creep statusOther $ Creep.rangedAttackCreep creep enemy
+  liftSubAction statusOther $ Creep.rangedAttackCreep creep enemy
 
 harvestSource ::
   forall e m.
@@ -77,7 +77,7 @@ harvestSource ::
     MonadEff (cmd :: CMD | e) m =>
       Creep -> Source -> m Unit
 harvestSource creep source =
-  liftSubAction creep statusOther $ Creep.harvestSource creep source
+  liftSubAction statusOther $ Creep.harvestSource creep source
 
 moveTo ::
   forall e m a.
@@ -85,7 +85,7 @@ moveTo ::
     MonadEff (cmd :: CMD, memory :: MEMORY | e) m =>
       Creep -> TargetPosition a -> m Unit
 moveTo creep target =
-  liftSubAction creep statusMoved do
+  liftSubAction statusMoved do
     code <- Creep.moveTo creep target
     -- Ignore err_tired so that running moveTo twice blocks in this case.
     pure $ if code == err_tired
@@ -98,7 +98,7 @@ transferToStructure ::
     MonadEff (cmd :: CMD | e) m => Structure a =>
       Creep -> a -> ResourceType -> m Unit
 transferToStructure creep structure resourceType =
-  liftSubAction creep statusOther $
+  liftSubAction statusOther $
     Creep.transferToStructure creep structure resourceType
 
 upgradeController ::
@@ -107,13 +107,13 @@ upgradeController ::
     MonadEff (cmd :: CMD | e) m =>
       Creep -> Controller -> m Unit
 upgradeController creep controller =
-  liftSubAction creep statusOther $ Creep.upgradeController creep controller
+  liftSubAction statusOther $ Creep.upgradeController creep controller
 
 liftSubAction ::
   forall e m.
     MonadHolder ExecStatus m => MonadError ExecError m => MonadEff e m =>
-      Creep -> ExecStatus -> Eff e ReturnCode -> m Unit
-liftSubAction creep status subAction =
+      ExecStatus -> Eff e ReturnCode -> m Unit
+liftSubAction status subAction =
   void $ reserve status do
     code <- liftEff subAction
     if code == ok
