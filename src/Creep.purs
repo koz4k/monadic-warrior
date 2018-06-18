@@ -7,10 +7,10 @@ import Control.Monad.Except.Trans (runExceptT)
 import Control.Monad.Holder (runHolderT)
 import Control.Monad.Rec.Class (class MonadRec)
 import Control.Monad.State (execStateT)
-import Creep.Exec (ExecError(BadReturnCode, ErrorMessage))
 import Creep.Plan (CreepPlan, executePlan)
 import Data.Bifunctor (lmap)
 import Data.Either (either, isRight)
+import Exec (ExecError(..))
 import Prelude (Unit, bind, flip, not, pure, show, when, ($), (<<<), (<=<), (<>))
 import Screeps (CMD, Creep, MEMORY, TICK)
 import Screeps.Creep (getMemory, name, setMemory, spawning)
@@ -49,8 +49,8 @@ runCreep creep = when (not $ spawning creep) do
           "error in creep " <> (show $ name creep) <> ": " <>
             renderDetails error
         renderDetails details = case details of
-          ErrorMessage message -> message
-          BadReturnCode code -> show code
+          EErrorMessage message -> message
+          EBadReturnCode code -> show code
 
 setThreads ::
   forall e m.

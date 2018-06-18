@@ -1,9 +1,9 @@
 module Error (class ErrorMessage, errorMessage, throwErrorMessage) where
 
 import Control.Monad.Except (class MonadError, throwError)
-import Prelude (id, (<<<))
+import Prelude (class Eq, id, (<<<))
 
-class ErrorMessage e where
+class Eq e <= ErrorMessage e where
   errorMessage :: String -> e
 
 instance errorMessageString :: ErrorMessage String where

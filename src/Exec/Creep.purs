@@ -1,19 +1,18 @@
-module Creep.Exec (ExecError(..), ExecStatus, build, catchReturnCode, harvestSource, moveTo, rangedAttackCreep, transferToStructure, upgradeController) where
+module Exec.Creep (ExecStatus, build, harvestSource, moveTo, rangedAttackCreep, transferToStructure, upgradeController) where
 
-import Control.Monad.Eff (Eff)
-import Control.Monad.Eff.Class (class MonadEff, liftEff)
-import Control.Monad.Error.Class (class MonadError, catchJust, throwError)
-import Control.Monad.Holder (class MonadHolder, class PartialMonoid, reserve)
+import Control.Monad.Eff.Class (class MonadEff)
+import Control.Monad.Error.Class (class MonadError)
+import Control.Monad.Holder (class MonadHolder, class PartialMonoid)
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
-import Error (class ErrorMessage)
-import Prelude (class Eq, Unit, bind, const, pure, unit, void, ($), (==))
+import Exec (ExecError, liftSubAction)
+import Prelude (Unit, bind, pure, ($), (==))
 import Screeps (CMD, Creep, MEMORY, TargetPosition)
 import Screeps.ConstructionSite (ConstructionSite)
 import Screeps.Controller (Controller)
 import Screeps.Creep (build, harvestSource, moveTo, rangedAttackCreep, transferToStructure, upgradeController) as Creep
 import Screeps.Resource (ResourceType)
-import Screeps.ReturnCode (ReturnCode, err_tired, ok)
+import Screeps.ReturnCode (err_tired, ok)
 import Screeps.Source (Source)
 import Screeps.Structure (class Structure)
 
@@ -45,15 +44,6 @@ statusMoved = ExecStatus {moved: true, other: false}
 
 statusOther :: ExecStatus
 statusOther = ExecStatus {moved: false, other: true}
-
-data ExecError
-  = ErrorMessage String
-  | BadReturnCode ReturnCode
-
-derive instance eqExecError :: Eq ExecError
-
-instance errorMessageExecError :: ErrorMessage ExecError where
-  errorMessage = ErrorMessage
 
 build ::
   forall e m.
@@ -108,23 +98,3 @@ upgradeController ::
       Creep -> Controller -> m Unit
 upgradeController creep controller =
   liftSubAction statusOther $ Creep.upgradeController creep controller
-
-liftSubAction ::
-  forall e m.
-    MonadHolder ExecStatus m => MonadError ExecError m => MonadEff e m =>
-      ExecStatus -> Eff e ReturnCode -> m Unit
-liftSubAction status subAction =
-  void $ reserve status do
-    code <- liftEff subAction
-    if code == ok
-      then pure unit
-      else throwError $ BadReturnCode code
-
-catchReturnCode ::
-  forall m a. MonadError ExecError m => ReturnCode -> m a -> m a -> m a
-catchReturnCode code action handler = action `catchIt` const handler
-  where
-    catchIt = catchJust \error ->
-      if error == BadReturnCode code
-        then Just error
-        else Nothing

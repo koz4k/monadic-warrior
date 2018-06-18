@@ -3,13 +3,10 @@ module Creep.Plan (CreepAction, CreepPlan, build, executePlan, fight, harvestEne
 import Control.Monad.Eff.Class (class MonadEff)
 import Control.Monad.Eff.Exception (message)
 import Control.Monad.Except (class MonadError)
-import Control.Monad.Except.Trans (throwError)
 import Control.Monad.Free (liftF, resume, wrap)
 import Control.Monad.Holder (class MonadHolder)
 import Control.Monad.State (class MonadState, State)
 import Control.Monad.Writer (WriterT)
-import Creep.Exec (ExecError(ErrorMessage), ExecStatus, catchReturnCode)
-import Creep.Exec (build, harvestSource, moveTo, rangedAttackCreep, transferToStructure, upgradeController) as Exec
 import Data.Argonaut.Core (jsonNull)
 import Data.Array (elem, head)
 import Data.Either (Either(Right, Left), isRight)
@@ -17,6 +14,10 @@ import Data.Maybe (Maybe(..))
 import Data.Monoid.Applicative (Traversal)
 import Data.Newtype (unwrap)
 import Data.Tuple (Tuple(..))
+import Error (throwErrorMessage)
+import Exec (ExecError, catchReturnCode)
+import Exec.Creep (ExecStatus)
+import Exec.Creep (build, harvestSource, moveTo, rangedAttackCreep, transferToStructure, upgradeController) as Exec
 import Plan (class Action, Plan(Plan), PlanF(PKill, PJoin, PFork, PInterrupt, PRepeat, PAction), ThreadId, tellAction)
 import Prelude (Unit, bind, discard, pure, unit, unless, when, ($), (&&), (*>), (<), (<<<), (>), (>>>))
 import Screeps (CMD, Creep, MEMORY, TICK, TargetPosition(..))
@@ -108,7 +109,7 @@ executePlan creep = unwrap >>> resume >>> case _ of
               Just source -> do
                 Exec.harvestSource creep source `orMoveTo` source
                 stay
-              Nothing -> throwError $ ErrorMessage "source not found"
+              Nothing -> throwErrorMessage "source not found"
           else transition next
       PAction TransferEnergyToBase next -> do
         if amtCarrying creep resource_energy > 0
@@ -126,7 +127,7 @@ executePlan creep = unwrap >>> resume >>> case _ of
                   `orMoveTo` structure
                 stay
               Nothing ->
-                throwError $ ErrorMessage "refillable structure not found"
+                throwErrorMessage "refillable structure not found"
           else transition next
       PAction UpgradeController next -> do
         if amtCarrying creep resource_energy > 0
@@ -134,7 +135,7 @@ executePlan creep = unwrap >>> resume >>> case _ of
             Just ctrl -> do
               Exec.upgradeController creep ctrl `orMoveTo` ctrl
               stay
-            Nothing -> throwError $ ErrorMessage "controller not found"
+            Nothing -> throwErrorMessage "controller not found"
           else transition next
       PRepeat block -> do
         -- Execute just the block to avoid infinite loops.
@@ -180,7 +181,7 @@ executePlan creep = unwrap >>> resume >>> case _ of
         findClosest findType =
           case findClosestByPath (pos creep) $ OfType findType of
             Right object -> pure object
-            Left error -> throwError $ ErrorMessage $ message error
+            Left error -> throwErrorMessage $ message error
         orMoveTo :: forall a. RoomObject a => m Unit -> a -> m Unit
         orMoveTo action' object =
           action' `catchNotInRange` (Exec.moveTo creep $ TargetObj object)
