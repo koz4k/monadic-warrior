@@ -2,7 +2,7 @@ module Threads (Threads, addThread, getThreadCount, hasThread, initThreads, remo
 
 import Control.Monad.Eff.Class (class MonadEff, liftEff)
 import Control.Monad.Eff.Random (RANDOM, randomInt)
-import Control.Monad.Except (class MonadError)
+import Control.Monad.Error.Class (class MonadThrow)
 import Control.Monad.Rec.Class (class MonadRec, Step(..), tailRecM)
 import Control.Monad.State (class MonadState, get, put)
 import Data.Array (delete, deleteAt, findIndex, intersect, length, snoc, unsafeIndex, unzip, updateAt, (!!))
@@ -18,9 +18,9 @@ initThreads :: forall t. t -> Threads t
 initThreads thread = [Tuple 0 thread]
 
 runThreads ::
-  forall t er m ef.
+  forall er ef m t.
     MonadRec m => MonadState (Threads t) m => ErrorMessage er =>
-    MonadError er m => MonadEff (random :: RANDOM | ef) m =>
+    MonadThrow er m => MonadEff (random :: RANDOM | ef) m =>
       (t -> m t) -> m Unit
 runThreads execute = do
   threadIds <- getThreadIds
@@ -51,15 +51,15 @@ runThreads execute = do
                   throwErrorMessage "thread index out of bounds"
                 Just threads' -> put threads'
 
-getThreadCount :: forall t m. MonadState (Threads t) m => m Int
+getThreadCount :: forall m t. MonadState (Threads t) m => m Int
 getThreadCount = length <$> getThreadIds
 
-getThreadIds :: forall t m. MonadState (Threads t) m => m (Array Int)
+getThreadIds :: forall m t. MonadState (Threads t) m => m (Array Int)
 getThreadIds = fst <<< unzip <$> get
 
 addThread ::
-  forall t er m.
-    MonadState (Threads t) m => ErrorMessage er => MonadError er m =>
+  forall e m t.
+    MonadState (Threads t) m => ErrorMessage e => MonadThrow e m =>
       Int -> t -> m Unit
 addThread threadId thread = do
   threads <- get
@@ -68,8 +68,8 @@ addThread threadId thread = do
   put $ snoc threads $ Tuple threadId thread
 
 removeThread ::
-  forall t er m.
-    MonadState (Threads t) m => ErrorMessage er => MonadError er m =>
+  forall e m t.
+    MonadState (Threads t) m => ErrorMessage e => MonadThrow e m =>
       Int -> m Unit
 removeThread threadId = do
   threads <- get
@@ -81,10 +81,10 @@ removeThread threadId = do
         Just threads' ->
           put threads'
 
-hasThread :: forall t m. MonadState (Threads t) m => Int -> m Boolean
+hasThread :: forall m t. MonadState (Threads t) m => Int -> m Boolean
 hasThread = map isJust <<< getThread
 
-getThread :: forall t m. MonadState (Threads t) m => Int -> m (Maybe t)
+getThread :: forall m t. MonadState (Threads t) m => Int -> m (Maybe t)
 getThread threadId = findThread threadId <$> get
 
 findThread :: forall t. Int -> Threads t -> Maybe t

@@ -1,17 +1,17 @@
 module Creep (assignPlan, hasPlan, runCreep) where
 
+import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Class (class MonadEff, liftEff)
 import Control.Monad.Eff.Random (RANDOM)
-import Control.Monad.Except (class MonadError, throwError)
+import Control.Monad.Except (class MonadError, ExceptT, throwError)
 import Control.Monad.Except.Trans (runExceptT)
-import Control.Monad.Holder (runHolderT)
-import Control.Monad.Rec.Class (class MonadRec)
 import Control.Monad.State (execStateT)
-import Creep.Plan (CreepPlan, executePlan)
-import Data.Bifunctor (lmap)
+import Control.Monad.Translatable (translate)
+import Creep.Plan (CreepAgent(..), CreepPlan)
 import Data.Either (either, isRight)
-import Error (renderError)
-import Prelude (Unit, bind, flip, not, pure, show, when, ($), (<<<), (<=<), (<>))
+import Error (mapError)
+import Plan (executePlan)
+import Prelude (Unit, bind, flip, id, not, pure, show, when, ($), (<<<), (<>))
 import Screeps (CMD, Creep, MEMORY, TICK)
 import Screeps.Creep (getMemory, name, setMemory, spawning)
 import Threads (Threads, initThreads, runThreads)
@@ -25,29 +25,26 @@ hasPlan creep = do
   e <- runExceptT $ getThreads creep
   pure $ isRight e
 
-runCreep ::
-  forall e m.
-    MonadRec m => MonadError String m =>
-    MonadEff ( cmd :: CMD
-             , memory :: MEMORY
-             , random :: RANDOM
-             , tick :: TICK
-             | e
-             ) m =>
-      Creep -> m Unit
+type CreepEff e
+  = ( cmd    :: CMD
+    , memory :: MEMORY
+    , random :: RANDOM
+    , tick   :: TICK
+    | e
+    )
+
+runCreep :: forall e. Creep -> ExceptT String (Eff (CreepEff e)) Unit
 runCreep creep = when (not $ spawning creep) do
   state <- getThreads creep
   state' <-
-    translateError $ flip execStateT state $ runHolderT $ runThreads $
-      executePlan creep
+    mapError describeCreep $ translate $ setEff $ flip execStateT state $
+      runThreads $ executePlan (CreepAgent creep)
   setThreads creep state'
   where
-    translateError =
-      either throwError pure <<< lmap renderMessage <=< runExceptT
-      where
-        renderMessage error =
-          "error in creep " <> (show $ name creep) <> ": " <>
-            renderError error
+    describeCreep error =
+      "error in creep " <> (show $ name creep) <> ": " <> error
+    setEff :: forall m a. MonadEff (CreepEff e) m => m a -> m a
+    setEff = id
 
 setThreads ::
   forall e m.

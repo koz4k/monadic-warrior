@@ -6,6 +6,7 @@ import Control.Monad.Rec.Class (class MonadRec)
 import Control.Monad.State (class MonadState, get, put, state)
 import Control.Monad.State.Trans (StateT, evalStateT)
 import Control.Monad.Trans.Class (class MonadTrans, lift)
+import Control.Monad.Translatable (class MonadTranslatable, translate)
 import Data.Maybe (Maybe(..))
 import Data.Newtype (class Newtype, unwrap)
 import Prelude (class Applicative, class Apply, class Bind, class Functor, class Monad, bind, discard, pure, (<$>), (<<<))
@@ -39,6 +40,10 @@ instance monadHolderHolderT ::
         Just <$> unwrap action
       Nothing -> pure Nothing
 
+runHolderT ::
+  forall r m a. PartialMonoid r => Monad m => HolderT r m a -> m a
+runHolderT (HolderT h) = evalStateT h partialEmpty
+
 derive newtype instance monadRecHolderT ::
   MonadRec m => MonadRec (HolderT r m)
 derive newtype instance monadThrowHolderT ::
@@ -56,6 +61,7 @@ instance monadStateHolderT ::
     (PartialMonoid r, MonadState r' m) => MonadState r' (HolderT r m) where
   state = lift <<< state
 
-runHolderT ::
-  forall r m a. PartialMonoid r => Monad m => HolderT r m a -> m a
-runHolderT (HolderT h) = evalStateT h partialEmpty
+instance monadTranslatableHolderT ::
+    (PartialMonoid r, Monad m, MonadTranslatable m n) =>
+      MonadTranslatable (HolderT r m) n where
+  translate = translate <<< runHolderT
