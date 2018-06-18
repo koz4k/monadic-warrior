@@ -10,7 +10,7 @@ import Control.Monad.State (execStateT)
 import Creep.Plan (CreepPlan, executePlan)
 import Data.Bifunctor (lmap)
 import Data.Either (either, isRight)
-import Exec (ExecError(..))
+import Error (renderError)
 import Prelude (Unit, bind, flip, not, pure, show, when, ($), (<<<), (<=<), (<>))
 import Screeps (CMD, Creep, MEMORY, TICK)
 import Screeps.Creep (getMemory, name, setMemory, spawning)
@@ -38,19 +38,16 @@ runCreep ::
 runCreep creep = when (not $ spawning creep) do
   state <- getThreads creep
   state' <-
-    renderError $ flip execStateT state $ runHolderT $ runThreads $
+    translateError $ flip execStateT state $ runHolderT $ runThreads $
       executePlan creep
   setThreads creep state'
   where
-    renderError =
+    translateError =
       either throwError pure <<< lmap renderMessage <=< runExceptT
       where
         renderMessage error =
           "error in creep " <> (show $ name creep) <> ": " <>
-            renderDetails error
-        renderDetails details = case details of
-          EErrorMessage message -> message
-          EBadReturnCode code -> show code
+            renderError error
 
 setThreads ::
   forall e m.

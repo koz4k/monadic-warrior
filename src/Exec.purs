@@ -1,12 +1,12 @@
-module Exec (class BadReturnCode, ExecError(..), badReturnCode, catchReturnCode, liftSubAction, throwBadReturnCode) where
+module Exec (class BadReturnCode, ExecError, badReturnCode, catchReturnCode, liftSubAction, throwBadReturnCode) where
 
 import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Class (class MonadEff, liftEff)
 import Control.Monad.Except (class MonadError, catchJust, throwError)
 import Control.Monad.Holder (class MonadHolder, reserve)
 import Data.Maybe (Maybe(..))
-import Error (class ErrorMessage)
-import Prelude (class Eq, Unit, bind, const, pure, unit, void, ($), (<<<), (==))
+import Error (class ErrorDetails, class ErrorMessage)
+import Prelude (class Eq, Unit, bind, const, pure, show, unit, void, ($), (<<<), (<>), (==))
 import Screeps.ReturnCode (ReturnCode, ok)
 
 class Eq e <= BadReturnCode e where
@@ -17,6 +17,11 @@ data ExecError
   | EBadReturnCode ReturnCode
 
 derive instance eqExecError :: Eq ExecError
+
+instance errorDetailsExecError :: ErrorDetails ExecError where
+  renderError = case _ of
+    EErrorMessage  message -> message
+    EBadReturnCode code    -> "code " <> show code
 
 instance errorMessageExecError :: ErrorMessage ExecError where
   errorMessage = EErrorMessage
