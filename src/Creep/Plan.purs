@@ -10,7 +10,6 @@ import Control.Monad.State (class MonadState, State)
 import Control.Monad.Writer (WriterT)
 import Creep.Exec (ExecError(ErrorMessage), ExecStatus, catchReturnCode)
 import Creep.Exec (build, harvestSource, moveTo, rangedAttackCreep, transferToStructure, upgradeController) as Exec
-import Creep.State (CreepState, addThread, hasThread, removeThread)
 import Data.Argonaut.Core (jsonNull)
 import Data.Array (elem, head)
 import Data.Either (Either(Right, Left), isRight)
@@ -30,6 +29,7 @@ import Screeps.Room (controller, find')
 import Screeps.RoomObject (class RoomObject, pos, room)
 import Screeps.RoomPosition (FindContext(OfType), findClosestByPath)
 import Screeps.Structure (structureType, structure_extension, structure_spawn)
+import Threads (Threads, addThread, hasThread, removeThread)
 
 data CreepAction
   = Build
@@ -74,7 +74,7 @@ upgradeController = tellAction UpgradeController
 
 executePlan ::
   forall e m.
-    MonadHolder ExecStatus m => MonadState (CreepState (CreepPlan Unit)) m =>
+    MonadHolder ExecStatus m => MonadState (Threads (CreepPlan Unit)) m =>
     MonadError ExecError m =>
     MonadEff (cmd :: CMD, memory :: MEMORY, tick :: TICK | e) m =>
       Creep -> CreepPlan Unit -> m (CreepPlan Unit)

@@ -9,20 +9,20 @@ import Control.Monad.Rec.Class (class MonadRec)
 import Control.Monad.State (execStateT)
 import Creep.Exec (ExecError(BadReturnCode, ErrorMessage))
 import Creep.Plan (CreepPlan, executePlan)
-import Creep.State (CreepState, initState, runThreads)
 import Data.Bifunctor (lmap)
 import Data.Either (either, isRight)
 import Prelude (Unit, bind, flip, not, pure, show, when, ($), (<<<), (<=<), (<>))
 import Screeps (CMD, Creep, MEMORY, TICK)
 import Screeps.Creep (getMemory, name, setMemory, spawning)
+import Threads (Threads, initThreads, runThreads)
 
 assignPlan ::
   forall e m. MonadEff (memory :: MEMORY | e) m => Creep -> CreepPlan Unit -> m Unit
-assignPlan creep = setState creep <<< initState
+assignPlan creep = setThreads creep <<< initThreads
 
 hasPlan :: forall e m. MonadEff (memory :: MEMORY | e) m => Creep -> m Boolean
 hasPlan creep = do
-  e <- runExceptT $ getState creep
+  e <- runExceptT $ getThreads creep
   pure $ isRight e
 
 runCreep ::
@@ -36,11 +36,11 @@ runCreep ::
              ) m =>
       Creep -> m Unit
 runCreep creep = when (not $ spawning creep) do
-  state <- getState creep
+  state <- getThreads creep
   state' <-
     renderError $ flip execStateT state $ runHolderT $ runThreads $
       executePlan creep
-  setState creep state'
+  setThreads creep state'
   where
     renderError =
       either throwError pure <<< lmap renderMessage <=< runExceptT
@@ -52,17 +52,17 @@ runCreep creep = when (not $ spawning creep) do
           ErrorMessage message -> message
           BadReturnCode code -> show code
 
-setState ::
+setThreads ::
   forall e m.
     MonadEff (memory :: MEMORY | e) m =>
-      Creep -> CreepState (CreepPlan Unit) -> m Unit
-setState creep = liftEff <<< flip setMemory "state" creep
+      Creep -> Threads (CreepPlan Unit) -> m Unit
+setThreads creep = liftEff <<< flip setMemory "threads" creep
 
-getState ::
+getThreads ::
   forall e m.
     MonadError String m =>
     MonadEff (memory :: MEMORY | e) m =>
-      Creep -> m (CreepState (CreepPlan Unit))
-getState creep = do
-  eitherState <- liftEff $ getMemory creep "state"
+      Creep -> m (Threads (CreepPlan Unit))
+getThreads creep = do
+  eitherState <- liftEff $ getMemory creep "threads"
   either throwError pure eitherState

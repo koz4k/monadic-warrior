@@ -6,6 +6,7 @@ import Control.Monad.Error.Class (class MonadError, catchJust, throwError)
 import Control.Monad.Holder (class MonadHolder, class PartialMonoid, reserve)
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
+import Error (class ErrorMessage)
 import Prelude (class Eq, Unit, bind, const, pure, unit, void, ($), (==))
 import Screeps (CMD, Creep, MEMORY, TargetPosition)
 import Screeps.ConstructionSite (ConstructionSite)
@@ -50,6 +51,9 @@ data ExecError
   | BadReturnCode ReturnCode
 
 derive instance eqExecError :: Eq ExecError
+
+instance errorMessageExecError :: ErrorMessage ExecError where
+  errorMessage = ErrorMessage
 
 build ::
   forall e m.
