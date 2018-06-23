@@ -9,7 +9,7 @@ import Control.Monad.Free (Free, liftF, resume, runFreeM, wrap)
 import Control.Monad.State (StateT)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Writer (class MonadWriter, execWriter, execWriterT, tell)
-import Data.Argonaut.Core (JObject, foldJsonArray, foldJsonObject, jsonEmptyObject)
+import Data.Argonaut.Core (Json, caseJsonArray, caseJsonObject, jsonEmptyObject)
 import Data.Argonaut.Decode (class DecodeJson, decodeJson, (.?))
 import Data.Argonaut.Encode (class EncodeJson, encodeJson, (:=), (~>))
 import Data.Array (singleton)
@@ -20,7 +20,8 @@ import Data.Maybe (maybe)
 import Data.Monoid.Applicative (Traversal(..))
 import Data.Newtype (class Newtype, unwrap)
 import Data.Tuple (Tuple(Tuple))
-import Prelude (class Applicative, class Apply, class Bind, class Functor, class Monad, Unit, bind, discard, flip, id, map, pure, unit, unless, when, ($), (*>), (+), (<$>), (<*>), (<<<), (<=<), (<>), (=<<), (>>=), (>>>))
+import Foreign.Object (Object)
+import Prelude (class Applicative, class Apply, class Bind, class Functor, class Monad, Unit, bind, discard, flip, identity, map, pure, unit, unless, when, ($), (*>), (+), (<$>), (<*>), (<<<), (<=<), (<>), (=<<), (>>=), (>>>))
 import Threads (Threads, addThread, hasThread, removeThread)
 
 type PThreadId = Int
@@ -84,11 +85,11 @@ instance encodeJsonPlan :: Action ac => EncodeJson (Plan ac Unit) where
         tellObject = tell <<< singleton
 
 instance decodeJsonPlan :: Action ac => DecodeJson (Plan ac Unit) where
-  decodeJson = foldJsonArray (throwError "expected an array") decodeFromArray
+  decodeJson = caseJsonArray (throwError "expected an array") decodeFromArray
     where
       decodeFromArray = map unwrap <<< execWriterT <<< traverse_ decodeAction
       decodeAction =
-        foldJsonObject (throwError "expected an object") \object ->
+        caseJsonObject (throwError "expected an object") \object ->
           (lift $ object .? "action") >>= case _ of
             "repeat" -> do
               tellPlan <<< PRepeat =<< decodeField object "block"
@@ -106,11 +107,11 @@ instance decodeJsonPlan :: Action ac => DecodeJson (Plan ac Unit) where
             cmd ->
               tellPlan <<< flip PAction unit =<< liftEither do
                 params <- object .? "params"
-                maybe (throwError $ "unrecognized command: " <> cmd) id $
+                maybe (throwError $ "unrecognized command: " <> cmd) identity $
                   decodeJsonAction cmd params
       decodeField ::
         forall m a.
-          MonadError String m => DecodeJson a => JObject -> String -> m a
+          MonadError String m => DecodeJson a => Object Json -> String -> m a
       decodeField object field = liftEither $ decodeJson =<< object .? field
       liftEither :: forall m a b. MonadError a m => Either a b -> m b
       liftEither = either throwError pure
@@ -182,8 +183,8 @@ localPlan :: forall m ac a. MonadPlanBuilder ac m => m a -> m (Plan ac Unit)
 localPlan = map unwrap <<< localCreate
 
 executePlan ::
-  forall er ef m ac ag.
-    Monad m => Agent er ef m ac ag =>
+  forall e m ac ag.
+    Monad m => Agent e m ac ag =>
       ag -> Plan ac Unit -> StateT (Threads (Plan ac Unit)) m (Plan ac Unit)
 executePlan agent = unwrap >>> resume >>> case _ of
   Left action -> peel action

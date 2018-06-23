@@ -3,7 +3,7 @@ module Error (class ErrorDetails, class ErrorMessage, errorMessage, mapError, re
 import Control.Monad.Error.Class (class MonadThrow)
 import Control.Monad.Except (ExceptT, mapExceptT, throwError)
 import Data.Bifunctor (lmap)
-import Prelude (class Eq, class Monad, id, map, ($), (<<<))
+import Prelude (class Eq, class Monad, identity, map, ($), (<<<))
 
 class Eq e <= ErrorDetails e where
   renderError :: e -> String
@@ -12,10 +12,10 @@ class ErrorDetails e <= ErrorMessage e where
   errorMessage :: String -> e
 
 instance errorDetailsString :: ErrorDetails String where
-  renderError = id
+  renderError = identity
 
 instance errorMessageString :: ErrorMessage String where
-  errorMessage = id
+  errorMessage = identity
 
 throwErrorMessage ::
   forall e m a. ErrorMessage e => MonadThrow e m => String -> m a

@@ -2,8 +2,8 @@ module Creep.Plan (CreepAction, CreepAgent(..), CreepPlan, build, fight, harvest
 
 import Action (class Action)
 import Agent (class Agent, ActionResult(..))
-import Control.Monad.Eff (Eff)
-import Control.Monad.Eff.Exception (message)
+import Effect (Effect)
+import Effect.Exception (message)
 import Control.Monad.Except (ExceptT)
 import Control.Monad.Holder (HolderT)
 import Control.Monad.State (State)
@@ -20,7 +20,7 @@ import Exec.Creep (ExecStatus)
 import Exec.Creep (build, harvestSource, moveTo, rangedAttackCreep, transferToStructure, upgradeController) as Exec
 import Plan (Plan, ThreadId, tellAction)
 import Prelude (Unit, bind, discard, pure, ($), (&&), (*>), (<), (>))
-import Screeps (CMD, Creep, MEMORY, TargetPosition(TargetObj))
+import Screeps (Creep, TargetPosition(TargetObj))
 import Screeps.Creep (amtCarrying, carryCapacity)
 import Screeps.FindType (FindType, find_construction_sites, find_hostile_creeps, find_my_structures, find_sources)
 import Screeps.Refillable (energy, energyCapacity, toRefillable)
@@ -74,16 +74,13 @@ upgradeController = tellAction UpgradeController
 
 newtype CreepAgent = CreepAgent Creep
 
-type CreepAgentM e
+type CreepAgentM
   = HolderT ExecStatus
-            (ExceptT ExecError (Eff (cmd :: CMD, memory :: MEMORY | e)))
+            (ExceptT ExecError Effect)
 
 instance agentCreepAgent ::
     Agent ExecError
-          (cmd :: CMD, memory :: MEMORY | e)
-          (HolderT ExecStatus
-                   (ExceptT ExecError (Eff (cmd :: CMD, memory :: MEMORY | e)))
-          )
+          (HolderT ExecStatus (ExceptT ExecError Effect))
           CreepAction
           CreepAgent
     where
@@ -144,15 +141,15 @@ instance agentCreepAgent ::
     where
       stay = pure Stay
       transition = pure Transition
-      findClosest :: forall a. FindType a -> CreepAgentM e (Maybe a)
+      findClosest :: forall a. FindType a -> CreepAgentM (Maybe a)
       findClosest findType =
         case findClosestByPath (pos creep) $ OfType findType of
           Right object -> pure object
           Left error -> throwErrorMessage $ message error
       orMoveTo ::
-        forall a. RoomObject a => CreepAgentM e Unit -> a -> CreepAgentM e Unit
+        forall a. RoomObject a => CreepAgentM Unit -> a -> CreepAgentM Unit
       orMoveTo action' object =
         action' `catchNotInRange` (Exec.moveTo creep $ TargetObj object)
       catchNotInRange ::
-        forall a. CreepAgentM e a -> CreepAgentM e a -> CreepAgentM e a
+        forall a. CreepAgentM a -> CreepAgentM a -> CreepAgentM a
       catchNotInRange = catchReturnCode err_not_in_range

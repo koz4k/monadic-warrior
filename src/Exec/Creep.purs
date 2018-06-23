@@ -1,13 +1,13 @@
 module Exec.Creep (ExecStatus, build, harvestSource, moveTo, rangedAttackCreep, transferToStructure, upgradeController) where
 
-import Control.Monad.Eff.Class (class MonadEff)
 import Control.Monad.Error.Class (class MonadError)
 import Control.Monad.Holder (class MonadHolder, class PartialMonoid)
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
+import Effect.Class (class MonadEffect)
 import Exec (ExecError, liftSubAction)
 import Prelude (Unit, bind, pure, ($), (==))
-import Screeps (CMD, Creep, MEMORY, TargetPosition)
+import Screeps (Creep, TargetPosition)
 import Screeps.ConstructionSite (ConstructionSite)
 import Screeps.Controller (Controller)
 import Screeps.Creep (build, harvestSource, moveTo, rangedAttackCreep, transferToStructure, upgradeController) as Creep
@@ -46,33 +46,33 @@ statusOther :: ExecStatus
 statusOther = ExecStatus {moved: false, other: true}
 
 build ::
-  forall e m.
+  forall m.
     MonadHolder ExecStatus m => MonadError ExecError m =>
-    MonadEff (cmd :: CMD | e) m =>
+    MonadEffect m =>
       Creep -> ConstructionSite -> m Unit
 build creep site =
   liftSubAction statusOther $ Creep.build creep site
 
 rangedAttackCreep ::
-  forall e m.
+  forall m.
     MonadHolder ExecStatus m => MonadError ExecError m =>
-    MonadEff (cmd :: CMD | e) m =>
+    MonadEffect m =>
       Creep -> Creep -> m Unit
 rangedAttackCreep creep enemy =
   liftSubAction statusOther $ Creep.rangedAttackCreep creep enemy
 
 harvestSource ::
-  forall e m.
+  forall m.
     MonadHolder ExecStatus m => MonadError ExecError m =>
-    MonadEff (cmd :: CMD | e) m =>
+    MonadEffect m =>
       Creep -> Source -> m Unit
 harvestSource creep source =
   liftSubAction statusOther $ Creep.harvestSource creep source
 
 moveTo ::
-  forall e m a.
+  forall m a.
     MonadHolder ExecStatus m => MonadError ExecError m =>
-    MonadEff (cmd :: CMD, memory :: MEMORY | e) m =>
+    MonadEffect m =>
       Creep -> TargetPosition a -> m Unit
 moveTo creep target =
   liftSubAction statusMoved do
@@ -83,18 +83,18 @@ moveTo creep target =
       else code
 
 transferToStructure ::
-  forall e m a.
+  forall m a.
     MonadHolder ExecStatus m => MonadError ExecError m =>
-    MonadEff (cmd :: CMD | e) m => Structure a =>
+    MonadEffect m => Structure a =>
       Creep -> a -> ResourceType -> m Unit
 transferToStructure creep structure resourceType =
   liftSubAction statusOther $
     Creep.transferToStructure creep structure resourceType
 
 upgradeController ::
-  forall e m.
+  forall m.
     MonadHolder ExecStatus m => MonadError ExecError m =>
-    MonadEff (cmd :: CMD | e) m =>
+    MonadEffect m =>
       Creep -> Controller -> m Unit
 upgradeController creep controller =
   liftSubAction statusOther $ Creep.upgradeController creep controller

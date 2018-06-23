@@ -2,21 +2,21 @@ module Control.Monad.Translatable (class MonadTranslatable, translate) where
 
 import Control.Monad.Except (ExceptT, mapExceptT)
 import Control.Monad.State (StateT, evalStateT)
-import Control.Monad.Trans.Class (class MonadTrans, lift)
 import Data.Bifunctor (lmap)
 import Data.Default (class Default, def)
+import Data.Identity (Identity)
+import Effect (Effect)
 import Error (class ErrorDetails, renderError)
-import Prelude (class Monad, flip, id, map, ($), (<<<))
+import Prelude (class Monad, flip, identity, map, ($), (<<<))
 
 class (Monad m, Monad n) <= MonadTranslatable m n where
   translate :: forall a. m a -> n a
 
-instance monadTranslatableReflexivity :: Monad m => MonadTranslatable m m where
-  translate = id
+instance monadTranslatableIdentity :: MonadTranslatable Identity Identity where
+  translate = identity
 
-instance monadTranslatableMonadTrans ::
-    (Monad m, MonadTrans t, Monad (t m)) => MonadTranslatable m (t m) where
-  translate = lift
+instance monadTranslatableEffect :: MonadTranslatable Effect Effect where
+  translate = identity
 
 instance monadTranslatableStateT ::
     (Default s, Monad m, MonadTranslatable m n) =>

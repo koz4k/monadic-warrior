@@ -1,7 +1,7 @@
 module Exec (class BadReturnCode, ExecError, badReturnCode, catchReturnCode, liftSubAction, throwBadReturnCode) where
 
-import Control.Monad.Eff (Eff)
-import Control.Monad.Eff.Class (class MonadEff, liftEff)
+import Effect (Effect)
+import Effect.Class (class MonadEffect, liftEffect)
 import Control.Monad.Except (class MonadError, catchJust, throwError)
 import Control.Monad.Holder (class MonadHolder, reserve)
 import Data.Maybe (Maybe(..))
@@ -34,12 +34,12 @@ throwBadReturnCode ::
 throwBadReturnCode = throwError <<< badReturnCode
 
 liftSubAction ::
-  forall r er ef m.
-    MonadHolder r m => BadReturnCode er => MonadError er m => MonadEff ef m =>
-      r -> Eff ef ReturnCode -> m Unit
+  forall r e m.
+    MonadHolder r m => BadReturnCode e => MonadError e m => MonadEffect m =>
+      r -> Effect ReturnCode -> m Unit
 liftSubAction status subAction =
   void $ reserve status do
-    code <- liftEff subAction
+    code <- liftEffect subAction
     if code == ok
       then pure unit
       else throwBadReturnCode code

@@ -1,7 +1,7 @@
 module Threads (Threads, addThread, getThreadCount, hasThread, initThreads, removeThread, runThreads) where
 
-import Control.Monad.Eff.Class (class MonadEff, liftEff)
-import Control.Monad.Eff.Random (RANDOM, randomInt)
+import Effect.Class (class MonadEffect, liftEffect)
+import Effect.Random (randomInt)
 import Control.Monad.Error.Class (class MonadThrow)
 import Control.Monad.Rec.Class (class MonadRec, Step(..), tailRecM)
 import Control.Monad.State (class MonadState, get, put)
@@ -18,9 +18,9 @@ initThreads :: forall t. t -> Threads t
 initThreads thread = [Tuple 0 thread]
 
 runThreads ::
-  forall er ef m t.
-    MonadRec m => MonadState (Threads t) m => ErrorMessage er =>
-    MonadThrow er m => MonadEff (random :: RANDOM | ef) m =>
+  forall e m t.
+    MonadRec m => MonadState (Threads t) m => ErrorMessage e =>
+    MonadThrow e m => MonadEffect m =>
       (t -> m t) -> m Unit
 runThreads execute = do
   threadIds <- getThreadIds
@@ -30,7 +30,7 @@ runThreads execute = do
       then pure $ Done unit
       else do
         threadId <- map (unsafePartial unsafeIndex threadIds') $
-          liftEff $ randomInt 0 $ threadCount - 1
+          liftEffect $ randomInt 0 $ threadCount - 1
         runThread threadId
         threadIds'' <- getThreadIds
         pure $ Loop $ delete threadId threadIds' `intersect` threadIds''

@@ -1,8 +1,7 @@
 module Main where
 
-import Control.Monad.Eff (Eff)
-import Control.Monad.Eff.Console (CONSOLE, log)
-import Control.Monad.Eff.Random (RANDOM)
+import Effect (Effect)
+import Effect.Console (log)
 import Control.Monad.Except.Trans (runExceptT)
 import Creep (assignPlan, hasPlan, runCreep)
 import Creep.Plan (build, fight, harvestEnergy, transferEnergyToBase, upgradeController)
@@ -11,17 +10,10 @@ import Data.Monoid ((<>))
 import Data.Traversable (traverse)
 import Plan (interleave, interrupt, plan, repeat)
 import Prelude (Unit, bind, discard, not, pure, void, when, ($), (<<<), (<=<), (=<<))
-import Screeps (CMD, MEMORY, TICK)
 import Screeps.Creep (getMemory)
 import Screeps.Game (creeps)
 
-main ::
-  Eff ( cmd :: CMD
-      , console :: CONSOLE
-      , memory :: MEMORY
-      , random :: RANDOM
-      , tick :: TICK
-      ) Unit
+main :: Effect Unit
 main = do
   void $ traverse (assignPlanToNewCreep) =<< creeps
   void $ traverse (handleError <<< runCreep) =<< creeps

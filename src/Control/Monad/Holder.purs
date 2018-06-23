@@ -1,6 +1,6 @@
 module Control.Monad.Holder (class PartialMonoid, class MonadHolder, HolderT, partialEmpty, partialAppend, reserve, runHolderT) where
 
-import Control.Monad.Eff.Class (class MonadEff)
+import Effect.Class (class MonadEffect)
 import Control.Monad.Error.Class (class MonadError, class MonadThrow)
 import Control.Monad.Rec.Class (class MonadRec)
 import Control.Monad.State (class MonadState, get, put, state)
@@ -50,8 +50,8 @@ derive newtype instance monadThrowHolderT ::
   MonadThrow e m => MonadThrow e (HolderT r m)
 derive newtype instance monadErrorHolderT ::
   MonadError e m => MonadError e (HolderT r m)
-derive newtype instance monadEffHolderT ::
-  MonadEff e m => MonadEff e (HolderT r m)
+derive newtype instance monadEffectHolderT ::
+  MonadEffect m => MonadEffect (HolderT r m)
 
 instance monadTransHolderT ::
     PartialMonoid r => MonadTrans (HolderT r) where
