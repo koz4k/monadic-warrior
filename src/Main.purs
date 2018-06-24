@@ -1,27 +1,27 @@
 module Main where
 
-import Effect (Effect)
-import Effect.Console (log)
+import Agent (agents, assignPlan, getAgentMemory, hasPlan, runAgent)
 import Control.Monad.Except.Trans (runExceptT)
-import Creep (assignPlan, hasPlan, runCreep)
-import Creep.Plan (build, fight, harvestEnergy, transferEnergyToBase, upgradeController)
+import Creep (CreepAgent, build, fight, harvestEnergy, transferEnergyToBase, upgradeController)
 import Data.Either (Either(..), either)
 import Data.Monoid ((<>))
 import Data.Traversable (traverse)
+import Effect (Effect)
+import Effect.Console (log)
 import Plan (interleave, interrupt, plan, repeat)
 import Prelude (Unit, bind, discard, not, pure, void, when, ($), (<<<), (<=<), (=<<))
-import Screeps.Creep (getMemory)
-import Screeps.Game (creeps)
 
 main :: Effect Unit
 main = do
   void $ traverse (assignPlanToNewCreep) =<< creeps
-  void $ traverse (handleError <<< runCreep) =<< creeps
+  void $ traverse (handleError <<< runAgent) =<< creeps
   where
+    creeps :: Effect (Array CreepAgent)
+    creeps = agents
     assignPlanToNewCreep creep = do
       creepHasPlan <- hasPlan creep
       when (not creepHasPlan) do
-        roleOrError <- getMemory creep "role"
+        roleOrError <- getAgentMemory creep "role"
         case roleOrError of
           Right "harvester" -> assignPlan creep harvesterPlan
           Right "upgrader"  -> assignPlan creep upgraderPlan

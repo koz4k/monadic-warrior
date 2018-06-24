@@ -1,7 +1,7 @@
 module Plan (class MonadPlanBuilder, Plan, ThreadId, executePlan, interleave, interrupt, plan, repeat, tellAction) where
 
 import Action (class Action, decodeJsonAction, encodeJsonAction)
-import Agent (class Agent, ActionResult(..), executeAction)
+import Agent.Class (class Agent, ActionResult(..), executeAction)
 import Control.Monad.Builder (class MonadBuilder, create, localCreate)
 import Control.Monad.Counter (class Counter, class MonadCounter, next)
 import Control.Monad.Except (class MonadError, throwError)
