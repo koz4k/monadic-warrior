@@ -3,7 +3,7 @@ module Agent.Class (class Agent, ActionResult(..), AgentName, AgentType, active,
 import Action (class Action)
 import Control.Monad.Error.Class (class MonadThrow)
 import Control.Monad.Except (ExceptT)
-import Control.Monad.Translatable (class MonadTranslatable)
+import Control.Monad.Simplifiable (class MonadSimplifiable)
 import Effect (Effect)
 import Effect.Class (class MonadEffect)
 import Error (class ErrorMessage)
@@ -30,7 +30,7 @@ data ActionResult
   | Transition
 
 class (ErrorMessage e, MonadThrow e m,
-       MonadTranslatable m (ExceptT String Effect),
+       MonadSimplifiable m (ExceptT String Effect),
        Action ac) <= Agent e m ac ag | ag -> ac m, m -> e where
   type_ :: AgentType ag
   name :: ag -> AgentName ag

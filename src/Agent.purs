@@ -4,7 +4,7 @@ import Agent.Class (class Agent, ActionResult(..), AgentName, AgentType, active,
 import Control.Monad.Except (class MonadError, ExceptT, runExceptT, throwError)
 import Control.Monad.Rec.Class (class MonadRec)
 import Control.Monad.State (execStateT)
-import Control.Monad.Translatable (translate)
+import Control.Monad.Simplifiable (simplify)
 import Data.Argonaut.Decode (class DecodeJson)
 import Data.Argonaut.Encode (class EncodeJson)
 import Data.Either (Either, either, isRight)
@@ -36,7 +36,7 @@ runAgent ::
 runAgent agent = when (active agent) do
   state <- getThreads agent
   state' <-
-    mapError describeAgent $ translate $ flip execStateT state $ runThreads $
+    mapError describeAgent $ simplify $ flip execStateT state $ runThreads $
       executePlan agent
   setThreads agent state'
   where
