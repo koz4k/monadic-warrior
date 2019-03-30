@@ -10,7 +10,7 @@ class Monad m <= MonadCreate o m | m -> o where
   create :: forall a. m a -> o
   localCreate :: forall a. m a -> m o
 
-instance monadFactoryWriterT ::
+instance monadCreateWriterT ::
     (Monoid o, MonadRunnable m) => MonadCreate o (WriterT o m) where
   create = run <<< execWriterT
   localCreate = lift <<< execWriterT
