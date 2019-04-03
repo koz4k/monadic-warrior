@@ -4,6 +4,7 @@ import Agent (agents, assignPlan, getAgentMemory, hasPlan, runAgent)
 import Control.Monad.Except.Trans (runExceptT)
 import Creep (CreepAgent, build, fight, harvestEnergy, transferEnergyToBase, upgradeController)
 import Data.Either (Either(..), either)
+import Data.Lazy (defer, force)
 import Data.Monoid ((<>))
 import Data.Traversable (traverse)
 import Effect (Effect)
@@ -23,15 +24,15 @@ main = do
       when (not creepHasPlan) do
         roleOrError <- getAgentMemory creep "role"
         case roleOrError of
-          Right "harvester" -> assignPlan creep harvesterPlan
-          Right "upgrader"  -> assignPlan creep upgraderPlan
+          Right "harvester" -> assignPlan creep $ force harvesterPlan
+          Right "upgrader"  -> assignPlan creep $ force upgraderPlan
           Right role        -> log $ "unknown role " <> role
           Left error        -> log error
-    harvesterPlan = plan $ (repeat do
+    harvesterPlan = defer \_ -> plan $ (repeat do
       harvestEnergy
       transferEnergyToBase `interrupt` build)
         `interleave` repeat fight
-    upgraderPlan = plan $ repeat do
+    upgraderPlan = defer \_ -> plan $ repeat do
       harvestEnergy
       upgradeController
     handleError = either log pure <=< runExceptT
